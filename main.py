@@ -1,14 +1,14 @@
 import discord
 import os
 from discord.ext import commands
-from openai import OpenAI
+from groq import Groq
 from flask import Flask
 from threading import Thread
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 app = Flask('')
 @app.route('/')
@@ -16,7 +16,8 @@ def home():
     return "Block2Bot est en ligne"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=8080)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
 @bot.event
 async def on_ready():
@@ -27,7 +28,7 @@ async def ask(ctx, *, question):
     msg = await ctx.send("Block2Bot réfléchit...")
     try:
         r = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": question}]
         )
         await msg.edit(content=r.choices[0].message.content[:2000])
