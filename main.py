@@ -18,28 +18,28 @@ channel_memory = {}
 
 TIMEZONES = {
     "france": "Europe/Paris", "paris": "Europe/Paris",
-    "usa": "America/New_York", "new york": "America/New_York",
+    "usa": "America/New_York", "new york": "America/New_York", "newyork": "America/New_York",
     "japon": "Asia/Tokyo", "tokyo": "Asia/Tokyo", "japan": "Asia/Tokyo",
-    "uk": "Europe/London", "londres": "Europe/London",
-    "allemagne": "Europe/Berlin", "berlin": "Europe/Berlin",
-    "espagne": "Europe/Madrid", "madrid": "Europe/Madrid",
-    "italie": "Europe/Rome", "rome": "Europe/Rome",
-    "canada": "America/Toronto", "toronto": "America/Toronto",
+    "uk": "Europe/London", "londres": "Europe/London", "london": "Europe/London",
+    "allemagne": "Europe/Berlin", "berlin": "Europe/Berlin", "germany": "Europe/Berlin",
+    "espagne": "Europe/Madrid", "madrid": "Europe/Madrid", "spain": "Europe/Madrid",
+    "italie": "Europe/Rome", "rome": "Europe/Rome", "italy": "Europe/Rome",
+    "canada": "America/Toronto", "toronto": "America/Toronto", "montreal": "America/Montreal",
     "australie": "Australia/Sydney", "sydney": "Australia/Sydney",
-    "chine": "Asia/Shanghai", "shanghai": "Asia/Shanghai",
-    "corée": "Asia/Seoul", "seoul": "Asia/Seoul",
-    "brésil": "America/Sao_Paulo", "brazil": "America/Sao_Paulo",
+    "chine": "Asia/Shanghai", "shanghai": "Asia/Shanghai", "beijing": "Asia/Shanghai",
+    "corée": "Asia/Seoul", "seoul": "Asia/Seoul", "korea": "Asia/Seoul",
+    "brésil": "America/Sao_Paulo", "sao paulo": "America/Sao_Paulo", "brazil": "America/Sao_Paulo",
     "maroc": "Africa/Casablanca", "casablanca": "Africa/Casablanca",
-    "algérie": "Africa/Algiers", "alger": "Africa/Algiers",
+    "algérie": "Africa/Algiers", "alger": "Africa/Algiers", "algeria": "Africa/Algiers",
     "tunisie": "Africa/Tunis", "tunis": "Africa/Tunis",
     "dubai": "Asia/Dubai", "uae": "Asia/Dubai",
-    "inde": "Asia/Kolkata", "india": "Asia/Kolkata",
-    "russie": "Europe/Moscow", "moscou": "Europe/Moscow",
+    "inde": "Asia/Kolkata", "india": "Asia/Kolkata", "mumbai": "Asia/Kolkata",
+    "russie": "Europe/Moscow", "moscou": "Europe/Moscow", "moscow": "Europe/Moscow",
 }
 
 @bot.event
 async def on_ready():
-    print(f'✅ {bot.user}')
+    print(f'✅ Connecté en tant que {bot.user}')
     await bot.change_presence(activity=discord.Game(name="🌿!help → Mode d'emploi ✨"))
     reset_memory.start()
 
@@ -49,12 +49,12 @@ async def reset_memory():
     print("🧹 Mémoire reset (3h)")
 
 def needs_web_search(text):
-    keywords = ["aujourd'hui", "hier", "actu", "news", "prix", "météo", "temps", "qui est", "quand", "résultat", "score", "dernière", "récent", "2024", "2025", "2026", "combien", "cours", "bourse"]
+    keywords = ["aujourd'hui", "hier", "actu", "news", "prix", "météo", "temps", "qui est", "quand", "résultat", "score", "dernière", "récent", "2024", "2025", "2026", "combien coûte", "cours", "bourse", "température"]
     return any(k in text.lower() for k in keywords)
 
 async def web_search(query):
     try:
-        search_prompt = f"Donne info récente sur: {query}. Réponse courte avec source."
+        search_prompt = f"Recherche info récente sur: {query}. Donne réponse courte avec source."
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": search_prompt}],
@@ -79,19 +79,21 @@ async def handle_ai(message, content):
 
             system_msg = "Réponds court, détaillé, avec emojis. Max 4 phrases."
             if search_result:
-                system_msg += f" Info: {search_result}"
+                system_msg += f" Info web: {search_result}"
 
             resp = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=[{"role": "system", "content": system_msg}] + channel_memory[cid],
-                max_tokens=400
+                max_tokens=400,
+                temperature=0.7
             )
             answer = resp.choices[0].message.content
             if search_result and "source" not in answer.lower():
                 answer += "\n\n🌐 Basé sur recherche web"
             channel_memory[cid].append({"role": "assistant", "content": answer})
             await message.reply(answer[:2000])
-        except: pass
+        except Exception as e:
+            print(f"Erreur IA: {e}")
 
 @bot.event
 async def on_message(message):
@@ -119,7 +121,7 @@ async def ask_cmd(ctx, *, question: str):
 
         system_msg = "Réponds court, détaillé, avec emojis. Max 4 phrases."
         if search_result:
-            system_msg += f" Utilise: {search_result}"
+            system_msg += f" Utilise cette info: {search_result}"
 
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -132,20 +134,23 @@ async def ask_cmd(ctx, *, question: str):
         channel_memory[cid].append({"role": "assistant", "content": answer})
         await msg.edit(content=answer[:2000])
     except Exception as e:
-        await msg.edit(content=f"❌ {type(e).__name__}")
+        await msg.edit(content=f"❌ Erreur: {type(e).__name__}")
 
 @bot.command(name="time")
 async def time_cmd(ctx, *, pays: str = None):
     if not pays:
         now = datetime.now()
-        return await ctx.send(f"⏰ **Heure locale**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}")
+        return await ctx.send(f"⏰ **Heure locale du bot**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}\n\n💡 Essaie: `!time france` ou `!time japon`")
     pays_key = pays.lower().strip()
     tz_name = TIMEZONES.get(pays_key)
     if not tz_name:
-        return await ctx.send("❌ Pays inconnu. Essaie: france, usa, japon, uk, maroc, dubai, canada...")
-    tz = ZoneInfo(tz_name)
-    now = datetime.now(tz)
-    await ctx.send(f"⏰ **{pays.title()}**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}\n🌍 {tz_name}")
+        return await ctx.send("❌ Pays inconnu\n💡 Exemples: france, usa, japon, uk, canada, australie, maroc, dubai, inde...")
+    try:
+        tz = ZoneInfo(tz_name)
+        now = datetime.now(tz)
+        await ctx.send(f"⏰ **{pays.title()}**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}\n🌍 Fuseau: {tz_name}")
+    except Exception as e:
+        await ctx.send(f"❌ Erreur: {e}")
 
 @bot.command(name="ia")
 @commands.has_permissions(administrator=True)
@@ -154,77 +159,84 @@ async def ia_toggle(ctx):
     if cid in active_ia:
         active_ia.remove(cid)
         channel_memory.pop(cid, None)
-        embed = discord.Embed(title="🔴 IA désactivée", description="Mémoire effacée ✅", color=0xff0000)
+        embed = discord.Embed(title="🔴 Mode IA désactivé", description="La mémoire de conversation a été **supprimée** ✅", color=0xff0000)
     else:
         active_ia.add(cid)
         channel_memory[cid] = []
-        embed = discord.Embed(title="🟢 IA activée", description="Mémoire + recherche web • Reset 3h", color=0x00ff00)
+        embed = discord.Embed(title="🟢 Mode IA activé", description="Je réponds à tous les messages avec mémoire 🧠\nRecherche web auto pour actu\nReset automatique toutes les 3h", color=0x00ff00)
     await ctx.send(embed=embed)
 
 @bot.command(name="ping")
 @commands.has_permissions(administrator=True)
 async def ping_cmd(ctx):
-    await ctx.send(f"🏓 {round(bot.latency*1000)}ms")
+    await ctx.send(f"🏓 Pong! {round(bot.latency * 1000)}ms")
 
 @bot.command(name="clear")
 @commands.has_permissions(administrator=True, manage_messages=True)
 async def clear_cmd(ctx, amount: int = 5):
-    if not 1 <= amount <= 100:
-        return await ctx.send("❌ 1-100")
-    deleted = await ctx.channel.purge(limit=amount+1)
-    await ctx.send(f"✅ {len(deleted)-1} supprimés", delete_after=3)
+    if amount < 1 or amount > 100:
+        return await ctx.send("❌ Nombre entre 1 et 100")
+    deleted = await ctx.channel.purge(limit=amount + 1)
+    await ctx.send(f"✅ {len(deleted)-1} messages supprimés", delete_after=3)
 
 @bot.command(name="help")
 async def help_cmd(ctx):
     is_admin = ctx.author.guild_permissions.administrator
-    e = discord.Embed(title="📖 Mode d'emploi Block2Bot", color=0x5865f2, description="Toutes les commandes")
+    e = discord.Embed(title="📖 Mode d'emploi Block2Bot", color=0x5865f2, description="Voici toutes les commandes disponibles")
 
-    e.add_field(name="🤖 IA INTELLIGENTE", value="`!ask <question>`\n→ Pose une question\n→ Mémoire du salon activée\n→ Recherche web auto pour actu/prix/météo\n→ Donne les sources", inline=False)
+    e.add_field(name="🤖 IA INTELLIGENTE", value="`!ask <question>`\n→ Pose une question à l'IA\n→ Elle se souvient de la conversation du salon\n→ Recherche web automatique pour actu, prix, météo, scores\n→ Donne les sources quand c'est du web", inline=False)
 
     if is_admin:
-        e.add_field(name="🧠 COMMANDES ADMIN", value="`!ia`\n→ Active mode auto-réponse dans le salon\n→ Répond à TOUS les messages\n→ Avec mémoire + web\n→ Refaire!ia = stop + efface mémoire\n\n`!ping`\n→ Latence du bot\n\n`!clear <1-100>`\n→ Supprime messages", inline=False)
+        e.add_field(name="🧠 COMMANDES ADMIN", value="`!ia`\n→ Active/désactive le mode conversation auto\n→ Quand activé: je réponds à TOUS les messages sans!ask\n→ Avec mémoire complète + recherche web\n→ Refaire!ia = désactive et efface mémoire\n\n`!ping`\n→ Affiche la latence\n\n`!clear <nombre>`\n→ Supprime 1 à 100 messages", inline=False)
 
-    e.add_field(name="🌍 UTILITAIRES", value="`!time <pays>`\n→ Heure exacte d'un pays\n→ Exemples: `!time france`, `!time japon`, `!time usa`, `!time maroc`, `!time dubai`\n→ Sans pays = heure locale", inline=False)
+    e.add_field(name="🌍 UTILITAIRES", value="`!time <pays>`\n→ Donne l'heure exacte d'un pays\n→ Exemples: `!time france`, `!time japon`, `!time usa`, `!time maroc`, `!time dubai`\n→ Sans argument: heure locale du bot", inline=False)
 
-    e.add_field(name="🎮 FUN", value="`!coin` → Pile ou face\n`!roll` → 1-100\n`!8ball <question>` → Oui/non\n`!ratio [@user]` → Ratio\n`!sus [@user]` → % sus", inline=False)
+    e.add_field(name="🎮 COMMANDES FUN", value="`!coin` → Pile ou face 🪙\n`!roll` → Nombre aléatoire 1-100 🎲\n`!8ball <question>` → Boule magique 🎱\n`!ratio [@membre]` → Ratio classique\n`!sus [@membre]` → Calcule ton taux de suspicion", inline=False)
 
-    e.set_footer(text="💾 Mémoire reset toutes les 3 heures automatiquement")
+    e.set_footer(text="💾 Mémoire partagée par salon • Reset auto toutes les 3 heures")
     await ctx.send(embed=e)
 
 @bot.command(name="coin")
 async def coin_cmd(ctx):
-    await ctx.send(f"🪙 **{random.choice(['Pile','Face'])}**")
+    await ctx.send(f"🪙 **{random.choice(['Pile', 'Face'])}**")
 
 @bot.command(name="roll")
 async def roll_cmd(ctx):
-    await ctx.send(f"🎲 **{random.randint(1,100)}**")
+    await ctx.send(f"🎲 Tu as fait **{random.randint(1, 100)}**")
 
 @bot.command(name="8ball")
-async def ball_cmd(ctx, *, q=None):
-    if not q:
-        return await ctx.send("❌!8ball ta question")
-    await ctx.send(f"🎱 {random.choice(['Oui 👍','Non 👎','Peut-être 🤔','C\'est sûr ✅','Jamais ❌'])}")
+async def ball_cmd(ctx, *, question: str = None):
+    if not question:
+        return await ctx.send("❌ Pose une question: `!8ball je vais réussir?`")
+    rep = random.choice(["Oui 👍", "Non 👎", "Peut-être 🤔", "C'est certain ✅", "Jamais ❌", "Demande plus tard ⏳", "Évidemment 😏"])
+    await ctx.send(f"🎱 {rep}")
 
 @bot.command(name="ratio")
-async def ratio_cmd(ctx, m: discord.Member = None):
-    await ctx.send(f"{(m or ctx.author).mention} ratio + L 📉")
+async def ratio_cmd(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    await ctx.send(f"{target.mention} ratio + L + skill issue 📉")
 
 @bot.command(name="sus")
-async def sus_cmd(ctx, m: discord.Member = None):
-    t = m or ctx.author
-    p = random.randint(0,100)
-    await ctx.send(f"📮 {t.mention} est **{p}%** sus {'😳' if p>75 else '😇'}")
+async def sus_cmd(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    pct = random.randint(0, 100)
+    emoji = '😳' if pct > 75 else '😇' if pct < 25 else '🤨'
+    await ctx.send(f"📮 {target.mention} est **{pct}%** sus {emoji}")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏱️ Attends {error.retry_after:.1f}s", delete_after=3)
+        await ctx.send(f"⏱️ Attends {error.retry_after:.1f}s", delete_after=5)
     elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Admin uniquement", delete_after=3)
+        await ctx.send("❌ Réservé aux administrateurs", delete_after=5)
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send("❌ Argument manquant", delete_after=5)
     elif isinstance(error, commands.CommandNotFound):
         return
+    else:
+        print(f"Erreur: {error}")
 
-if TOKEN:
-    bot.run(TOKEN)
+if not TOKEN:
+    print("❌ ERREUR: Variable TOKEN manquante sur Railway")
 else:
-    print("❌ TOKEN manquant")
+    bot.run(TOKEN)
