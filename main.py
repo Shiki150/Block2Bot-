@@ -1,16 +1,8 @@
-# ═══════════════════════════════════════════════════════════════════
-#  PARTIE 1 / 3 — CONFIG · EVENTS · IA
-#  ▸ Collez les 3 parties à la suite dans un seul fichier bot.py
-#  ▸ Activez "Server Members Intent" dans le portail Discord Developer
-# ═══════════════════════════════════════════════════════════════════
-
 import discord, os, random
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from discord.ext import commands, tasks
 from groq import Groq
-
-# ── CONFIG ──────────────────────────────────────────────────────────
 intents                = discord.Intents.default()
 intents.message_content = True
 intents.members        = True          # ← activer dans le portail Discord
@@ -49,7 +41,6 @@ def mk_embed(title: str, desc: str = "", color: int = BOT_COLOR,
     e.set_footer(text=footer or BOT_NAME)
     return e
 
-# ── EVENTS ──────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
     await bot.change_presence(activity=discord.Game(name="🌿 !help → Mode d'emploi"))
@@ -68,7 +59,7 @@ async def on_guild_join(guild: discord.Guild):
                 "Si vous souhaitez plus d'infos sur moi, veuillez rejoindre\n"
                 "notre Discord ou exécuter la commande `!help` 🎋\n\n"
                 "**━━━━━━━━━━━━━━━━━━━━━━━━**\n"
-                f"→  **{SUPPORT_URL}**  ←\n"
+                f"→  https://discord.gg/SxCbfsErHU  ←\n"
                 "**━━━━━━━━━━━━━━━━━━━━━━━━**"
             ),
             color=BOT_COLOR,
@@ -118,8 +109,6 @@ async def on_command_error(ctx: commands.Context, error):
     elif isinstance(error, commands.BadArgument):
         await ctx.send(embed=mk_embed("❌ Argument invalide",
             "Mauvais argument. Tape `!help` pour plus d'infos.", 0xE74C3C))
-
-# ── IA ──────────────────────────────────────────────────────────────
 @tasks.loop(hours=3)
 async def reset_loop():
     memory.clear()
@@ -173,11 +162,7 @@ async def ia(ctx: commands.Context):
         await ctx.send(embed=mk_embed("🟢 IA Activée",
             "L'IA répond automatiquement à tous les messages dans ce salon.\n"
             "📝 Mémoire : 20 messages  |  🌐 Web auto  |  🔄 Reset toutes les 3h"))
-        # ═══════════════════════════════════════════════════════════════════
-#  PARTIE 2 / 3 — MODÉRATION
-#  ▸ À coller APRÈS la partie 1 dans bot.py
-# ═══════════════════════════════════════════════════════════════════
-
+        
 @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
@@ -247,8 +232,7 @@ async def mute(ctx: commands.Context, member: discord.Member, *, reason: str = "
     if member == ctx.author:
         return await ctx.send(embed=mk_embed("❌ Erreur",
             "Tu ne peux pas te mute toi-même.", 0xE74C3C))
-    # Récupérer ou créer le rôle "Muted" automatiquement
-    muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
+        muted_role = discord.utils.get(ctx.guild.roles, name="Muted")
     if not muted_role:
         muted_role = await ctx.guild.create_role(name="Muted",
             reason="Rôle créé automatiquement par le bot")
