@@ -6,237 +6,157 @@ from zoneinfo import ZoneInfo
 from discord.ext import commands, tasks
 from groq import Groq
 
+# CONFIG
 intents = discord.Intents.default()
 intents.message_content = True
-
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 TOKEN = os.getenv("TOKEN")
 
-active_ia = set()
-channel_memory = {}
+# Mémoire
+active_channels = set()
+memory = {}
 
-TIMEZONES = {
+# Timezones
+TZ = {
     "france": "Europe/Paris", "paris": "Europe/Paris",
-    "usa": "America/New_York", "new york": "America/New_York", "newyork": "America/New_York",
-    "japon": "Asia/Tokyo", "tokyo": "Asia/Tokyo", "japan": "Asia/Tokyo",
-    "uk": "Europe/London", "londres": "Europe/London", "london": "Europe/London",
-    "allemagne": "Europe/Berlin", "berlin": "Europe/Berlin", "germany": "Europe/Berlin",
-    "espagne": "Europe/Madrid", "madrid": "Europe/Madrid", "spain": "Europe/Madrid",
-    "italie": "Europe/Rome", "rome": "Europe/Rome", "italy": "Europe/Rome",
-    "canada": "America/Toronto", "toronto": "America/Toronto", "montreal": "America/Montreal",
-    "australie": "Australia/Sydney", "sydney": "Australia/Sydney",
-    "chine": "Asia/Shanghai", "shanghai": "Asia/Shanghai", "beijing": "Asia/Shanghai",
-    "corée": "Asia/Seoul", "seoul": "Asia/Seoul", "korea": "Asia/Seoul",
-    "brésil": "America/Sao_Paulo", "sao paulo": "America/Sao_Paulo", "brazil": "America/Sao_Paulo",
-    "maroc": "Africa/Casablanca", "casablanca": "Africa/Casablanca",
-    "algérie": "Africa/Algiers", "alger": "Africa/Algiers", "algeria": "Africa/Algiers",
-    "tunisie": "Africa/Tunis", "tunis": "Africa/Tunis",
-    "dubai": "Asia/Dubai", "uae": "Asia/Dubai",
-    "inde": "Asia/Kolkata", "india": "Asia/Kolkata", "mumbai": "Asia/Kolkata",
-    "russie": "Europe/Moscow", "moscou": "Europe/Moscow", "moscow": "Europe/Moscow",
+    "usa": "America/New_York", "new york": "America/New_York",
+    "japon": "Asia/Tokyo", "tokyo": "Asia/Tokyo",
+    "uk": "Europe/London", "londres": "Europe/London",
+    "allemagne": "Europe/Berlin", "espagne": "Europe/Madrid",
+    "italie": "Europe/Rome", "canada": "America/Toronto",
+    "australie": "Australia/Sydney", "chine": "Asia/Shanghai",
+    "corée": "Asia/Seoul", "brésil": "America/Sao_Paulo",
+    "maroc": "Africa/Casablanca", "algérie": "Africa/Algiers",
+    "tunisie": "Africa/Tunis", "dubai": "Asia/Dubai",
+    "inde": "Asia/Kolkata", "russie": "Europe/Moscow"
 }
 
 @bot.event
 async def on_ready():
-    print(f'✅ Connecté en tant que {bot.user}')
-    await bot.change_presence(activity=discord.Game(name="🌿!help → Mode d'emploi ✨"))
-    reset_memory.start()
+    await bot.change_presence(activity=discord.Game(name="🌿!help → Mode d'emploi"))
+    reset_loop.start()
+    print(f"✅ {bot.user} connecté")
 
 @tasks.loop(hours=3)
-async def reset_memory():
-    channel_memory.clear()
-    print("🧹 Mémoire reset (3h)")
+async def reset_loop():
+    memory.clear()
+    print("Memory reset")
 
-def needs_web_search(text):
-    keywords = ["aujourd'hui", "hier", "actu", "news", "prix", "météo", "temps", "qui est", "quand", "résultat", "score", "dernière", "récent", "2024", "2025", "2026", "combien coûte", "cours", "bourse", "température"]
-    return any(k in text.lower() for k in keywords)
+def need_web(q):
+    words = ["aujourd'hui", "actu", "prix", "météo", "score", "2024", "2025", "2026", "combien", "qui est"]
+    return any(w in q.lower() for w in words)
 
-async def web_search(query):
-    try:
-        search_prompt = f"Recherche info récente sur: {query}. Donne réponse courte avec source."
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": search_prompt}],
-            max_tokens=300
-        )
-        return resp.choices[0].message.content + "\n\n🔗 Source: recherche web"
-    except:
-        return None
-
-async def handle_ai(message, content):
-    cid = message.channel.id
-    if cid not in channel_memory:
-        channel_memory[cid] = []
-    channel_memory[cid].append({"role": "user", "content": content})
-    channel_memory[cid] = channel_memory[cid][-20:]
-
-    async with message.channel.typing():
-        try:
-            search_result = None
-            if needs_web_search(content):
-                search_result = await web_search(content)
-
-            system_msg = "Réponds court, détaillé, avec emojis. Max 4 phrases."
-            if search_result:
-                system_msg += f" Info web: {search_result}"
-
-            resp = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": system_msg}] + channel_memory[cid],
-                max_tokens=400,
-                temperature=0.7
-            )
-            answer = resp.choices[0].message.content
-            if search_result and "source" not in answer.lower():
-                answer += "\n\n🌐 Basé sur recherche web"
-            channel_memory[cid].append({"role": "assistant", "content": answer})
-            await message.reply(answer[:2000])
-        except Exception as e:
-            print(f"Erreur IA: {e}")
+async def ask_ai(messages, with_web=False):
+    system = "Réponds en 3 phrases max, clair, avec emojis."
+    if with_web:
+        system += " Cite tes sources."
+    resp = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "system", "content": system}] + messages,
+        max_tokens=400
+    )
+    return resp.choices[0].message.content
 
 @bot.event
-async def on_message(message):
-    if message.author.bot:
+async def on_message(msg):
+    if msg.author.bot:
         return
-    await bot.process_commands(message)
-    if message.channel.id in active_ia and not message.content.startswith('!'):
-        if len(message.content) >= 3:
-            await handle_ai(message, message.content)
-            @bot.command(name="ask")
+    await bot.process_commands(msg)
+
+    if msg.channel.id in active_channels and not msg.content.startswith("!"):
+        cid = msg.channel.id
+        memory.setdefault(cid, []).append({"role": "user", "content": msg.content})
+        memory[cid] = memory[cid][-20:]
+
+        async with msg.channel.typing():
+            answer = await ask_ai(memory[cid], need_web(msg.content))
+            memory[cid].append({"role": "assistant", "content": answer})
+            await msg.reply(answer[:2000])
+
+@bot.command()
 @commands.cooldown(1, 5, commands.BucketType.user)
-async def ask_cmd(ctx, *, question: str):
+async def ask(ctx, *, question):
     msg = await ctx.send("💭")
     cid = ctx.channel.id
-    if cid not in channel_memory:
-        channel_memory[cid] = []
-    channel_memory[cid].append({"role": "user", "content": question})
-    channel_memory[cid] = channel_memory[cid][-20:]
+    memory.setdefault(cid, []).append({"role": "user", "content": question})
+    memory[cid] = memory[cid][-20:]
 
-    try:
-        search_result = None
-        if needs_web_search(question):
-            await msg.edit(content="🌐 Recherche web...")
-            search_result = await web_search(question)
+    if need_web(question):
+        await msg.edit(content="🌐 Recherche...")
 
-        system_msg = "Réponds court, détaillé, avec emojis. Max 4 phrases."
-        if search_result:
-            system_msg += f" Utilise cette info: {search_result}"
+    answer = await ask_ai(memory[cid], need_web(question))
+    if need_web(question):
+        answer += "\n\n🔗 Source: web"
 
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "system", "content": system_msg}] + channel_memory[cid],
-            max_tokens=400
-        )
-        answer = resp.choices[0].message.content
-        if search_result:
-            answer += "\n\n🔗 Source: web"
-        channel_memory[cid].append({"role": "assistant", "content": answer})
-        await msg.edit(content=answer[:2000])
-    except Exception as e:
-        await msg.edit(content=f"❌ Erreur: {type(e).__name__}")
+    memory[cid].append({"role": "assistant", "content": answer})
+    await msg.edit(content=answer[:2000])
 
-@bot.command(name="time")
-async def time_cmd(ctx, *, pays: str = None):
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ia(ctx):
+    cid = ctx.channel.id
+    if cid in active_channels:
+        active_channels.remove(cid)
+        memory.pop(cid, None)
+        await ctx.send("🔴 IA désactivée - mémoire effacée")
+    else:
+        active_channels.add(cid)
+        memory[cid] = []
+        await ctx.send("🟢 IA activée - mémoire + web (reset 3h)")
+
+@bot.command()
+async def time(ctx, *, pays=None):
     if not pays:
         now = datetime.now()
-        return await ctx.send(f"⏰ **Heure locale du bot**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}\n\n💡 Essaie: `!time france` ou `!time japon`")
-    pays_key = pays.lower().strip()
-    tz_name = TIMEZONES.get(pays_key)
-    if not tz_name:
-        return await ctx.send("❌ Pays inconnu\n💡 Exemples: france, usa, japon, uk, canada, australie, maroc, dubai, inde...")
-    try:
-        tz = ZoneInfo(tz_name)
-        now = datetime.now(tz)
-        await ctx.send(f"⏰ **{pays.title()}**\n🕐 {now.strftime('%H:%M:%S')}\n📅 {now.strftime('%d/%m/%Y')}\n🌍 Fuseau: {tz_name}")
-    except Exception as e:
-        await ctx.send(f"❌ Erreur: {e}")
+        return await ctx.send(f"⏰ {now.strftime('%H:%M:%S')} - {now.strftime('%d/%m/%Y')}")
 
-@bot.command(name="ia")
-@commands.has_permissions(administrator=True)
-async def ia_toggle(ctx):
-    cid = ctx.channel.id
-    if cid in active_ia:
-        active_ia.remove(cid)
-        channel_memory.pop(cid, None)
-        embed = discord.Embed(title="🔴 Mode IA désactivé", description="La mémoire de conversation a été **supprimée** ✅", color=0xff0000)
-    else:
-        active_ia.add(cid)
-        channel_memory[cid] = []
-        embed = discord.Embed(title="🟢 Mode IA activé", description="Je réponds à tous les messages avec mémoire 🧠\nRecherche web auto pour actu\nReset automatique toutes les 3h", color=0x00ff00)
-    await ctx.send(embed=embed)
+    tz = TZ.get(pays.lower())
+    if not tz:
+        return await ctx.send("Pays inconnu. Essaie: france, usa, japon, uk, maroc...")
 
-@bot.command(name="ping")
-@commands.has_permissions(administrator=True)
-async def ping_cmd(ctx):
-    await ctx.send(f"🏓 Pong! {round(bot.latency * 1000)}ms")
+    now = datetime.now(ZoneInfo(tz))
+    await ctx.send(f"⏰ **{pays.title()}** {now.strftime('%H:%M:%S')}")
 
-@bot.command(name="clear")
-@commands.has_permissions(administrator=True, manage_messages=True)
-async def clear_cmd(ctx, amount: int = 5):
-    if amount < 1 or amount > 100:
-        return await ctx.send("❌ Nombre entre 1 et 100")
-    deleted = await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"✅ {len(deleted)-1} messages supprimés", delete_after=3)
+@bot.command()
+async def help(ctx):
+    admin = ctx.author.guild_permissions.administrator
+    txt = "**📖 COMMANDES**\n\n"
+    txt += "**🤖 IA**\n`!ask question` → IA avec mémoire + recherche web\n\n"
+    if admin:
+        txt += "**⚙️ ADMIN**\n`!ia` → mode auto\n`!clear 10` → supprime\n`!ping` → latence\n\n"
+    txt += "**🌍 UTILE**\n`!time france` → heure pays\n\n"
+    txt += "**🎮 FUN**\n`!coin` `!roll` `!8ball` `!ratio` `!sus`"
+    await ctx.send(txt)
 
-@bot.command(name="help")
-async def help_cmd(ctx):
-    is_admin = ctx.author.guild_permissions.administrator
-    e = discord.Embed(title="📖 Mode d'emploi Block2Bot", color=0x5865f2, description="Voici toutes les commandes disponibles")
+@bot.command()
+async def coin(ctx):
+    await ctx.send(random.choice(["Pile", "Face"]))
 
-    e.add_field(name="🤖 IA INTELLIGENTE", value="`!ask <question>`\n→ Pose une question à l'IA\n→ Elle se souvient de la conversation du salon\n→ Recherche web automatique pour actu, prix, météo, scores\n→ Donne les sources quand c'est du web", inline=False)
+@bot.command()
+async def roll(ctx):
+    await ctx.send(str(random.randint(1, 100)))
 
-    if is_admin:
-        e.add_field(name="🧠 COMMANDES ADMIN", value="`!ia`\n→ Active/désactive le mode conversation auto\n→ Quand activé: je réponds à TOUS les messages sans!ask\n→ Avec mémoire complète + recherche web\n→ Refaire!ia = désactive et efface mémoire\n\n`!ping`\n→ Affiche la latence\n\n`!clear <nombre>`\n→ Supprime 1 à 100 messages", inline=False)
+@bot.command()
+async def ping(ctx):
+    await ctx.send(f"{round(bot.latency*1000)}ms")
 
-    e.add_field(name="🌍 UTILITAIRES", value="`!time <pays>`\n→ Donne l'heure exacte d'un pays\n→ Exemples: `!time france`, `!time japon`, `!time usa`, `!time maroc`, `!time dubai`\n→ Sans argument: heure locale du bot", inline=False)
-
-    e.add_field(name="🎮 COMMANDES FUN", value="`!coin` → Pile ou face 🪙\n`!roll` → Nombre aléatoire 1-100 🎲\n`!8ball <question>` → Boule magique 🎱\n`!ratio [@membre]` → Ratio classique\n`!sus [@membre]` → Calcule ton taux de suspicion", inline=False)
-
-    e.set_footer(text="💾 Mémoire partagée par salon • Reset auto toutes les 3 heures")
-    await ctx.send(embed=e)
-
-@bot.command(name="coin")
-async def coin_cmd(ctx):
-    await ctx.send(f"🪙 **{random.choice(['Pile', 'Face'])}**")
-
-@bot.command(name="roll")
-async def roll_cmd(ctx):
-    await ctx.send(f"🎲 Tu as fait **{random.randint(1, 100)}**")
+@bot.command()
+@commands.has_permissions(manage_messages=True)
+async def clear(ctx, n: int = 5):
+    await ctx.channel.purge(limit=n+1)
+    await ctx.send(f"✅ {n} supprimés", delete_after=2)
 
 @bot.command(name="8ball")
-async def ball_cmd(ctx, *, question: str = None):
-    if not question:
-        return await ctx.send("❌ Pose une question: `!8ball je vais réussir?`")
-    rep = random.choice(["Oui 👍", "Non 👎", "Peut-être 🤔", "C'est certain ✅", "Jamais ❌", "Demande plus tard ⏳", "Évidemment 😏"])
-    await ctx.send(f"🎱 {rep}")
+async def _8ball(ctx, *, q=None):
+    await ctx.send(random.choice(["Oui 👍", "Non 👎", "Peut-être"]))
 
-@bot.command(name="ratio")
-async def ratio_cmd(ctx, member: discord.Member = None):
-    target = member or ctx.author
-    await ctx.send(f"{target.mention} ratio + L + skill issue 📉")
+@bot.command()
+async def ratio(ctx, m: discord.Member = None):
+    await ctx.send(f"{(m or ctx.author).mention} ratio")
 
-@bot.command(name="sus")
-async def sus_cmd(ctx, member: discord.Member = None):
-    target = member or ctx.author
-    pct = random.randint(0, 100)
-    emoji = '😳' if pct > 75 else '😇' if pct < 25 else '🤨'
-    await ctx.send(f"📮 {target.mention} est **{pct}%** sus {emoji}")
+@bot.command()
+async def sus(ctx, m: discord.Member = None):
+    await ctx.send(f"{(m or ctx.author).mention} {random.randint(0,100)}% sus")
 
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(f"⏱️ Attends {error.retry_after:.1f}s", delete_after=5)
-    elif isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ Réservé aux administrateurs", delete_after=5)
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ Argument manquant", delete_after=5)
-    elif isinstance(error, commands.CommandNotFound):
-        return
-    else:
-        print(f"Erreur: {error}")
-
-if not TOKEN:
-    print("❌ ERREUR: Variable TOKEN manquante sur Railway")
-else:
-    bot.run(TOKEN)
+bot.run(TOKEN)
