@@ -336,7 +336,8 @@ async def unlock(ctx):
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
     await ctx.send(embed=mk_embed("🔓 Salon déverrouillé",
         f"{ctx.channel.mention} est de nouveau ouvert.\n**Par :** {ctx.author.mention}"))
-    @bot.command(name="time")
+
+@bot.command(name="time")  # colonne 0, pas d'espace devant
 async def time_cmd(ctx, *, pays: str = None):
     if not pays:
         now = datetime.now(ZoneInfo("Europe/Paris"))
