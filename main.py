@@ -150,7 +150,6 @@ async def ask(ctx, *, question: str):
     memory[cid].append({"role": "assistant", "content": answer})
     await msg.edit(embed=mk_embed("🤖 Réponse IA", answer[:4000],
                                   footer=f"Question de {ctx.author.display_name}"))
-
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ia(ctx):
@@ -161,11 +160,11 @@ async def ia(ctx):
         await ctx.send(embed=mk_embed("🔴 IA Désactivée",
             "L'IA ne répond plus dans ce salon.", 0xE74C3C), delete_after=5)
     else:
-    active_channels.add(cid)
-    memory[cid] = []
-    await ctx.send(embed=mk_embed("🟢 IA Activée",
-        "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h"
-    ))
+        active_channels.add(cid) # 4 espaces
+        memory[cid] = [] # 4 espaces
+        await ctx.send(embed=mk_embed("🟢 IA Activée", # 4 espaces
+            "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h"
+        ))
 @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
