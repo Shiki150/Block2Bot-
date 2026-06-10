@@ -164,8 +164,8 @@ async def ia(ctx):
         active_channels.add(cid)
         memory[cid] = []
         await ctx.send(embed=mk_embed("🟢 IA Activée",
-            "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h"))
-        @bot.command()
+            "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h")
+@bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
@@ -184,7 +184,6 @@ async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison four
     await ctx.send(embed=mk_embed("👢 Membre expulsé",
         f"**Membre :** {member.mention}\n**Raison :** {reason}\n"
         f"**Par :** {ctx.author.mention}", 0xE67E22))
-
 @bot.command()
 @commands.has_permissions(ban_members=True)
 @commands.bot_has_permissions(ban_members=True)
