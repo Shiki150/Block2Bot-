@@ -161,10 +161,11 @@ async def ia(ctx):
         await ctx.send(embed=mk_embed("🔴 IA Désactivée",
             "L'IA ne répond plus dans ce salon.", 0xE74C3C), delete_after=5)
     else:
-        active_channels.add(cid)
-        memory[cid] = []
-        await ctx.send(embed=mk_embed("🟢 IA Activée",
-            "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h")
+    active_channels.add(cid)
+    memory[cid] = []
+    await ctx.send(embed=mk_embed("🟢 IA Activée",
+        "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h"
+    ))
 @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
