@@ -77,7 +77,8 @@ async def on_guild_join(guild):
         await owner.send(embed=e)
     except (discord.Forbidden, discord.HTTPException):
         pass
-        @bot.event
+
+@bot.event
 async def on_message(msg):
     if msg.author.bot:
         return
@@ -110,18 +111,21 @@ async def on_command_error(ctx, error):
         if isinstance(error, exc):
             return await ctx.send(embed=mk_embed(title, desc, 0xE74C3C), delete_after=6)
     if isinstance(error, commands.CommandOnCooldown):
-        await ctx.send(embed=mk_embed("⏱️ Cooldown", f"Attends `{error.retry_after:.1f}s`.", 0xE67E22), delete_after=5)
+        await ctx.send(embed=mk_embed("⏱️ Cooldown",
+            f"Attends `{error.retry_after:.1f}s`.", 0xE67E22), delete_after=5)
 
 @tasks.loop(hours=3)
 async def reset_loop():
     memory.clear()
 
 def need_web(q):
-    kw = ["aujourd'hui", "actu", "prix", "météo", "score", "2024", "2025", "2026", "combien", "qui est", "maintenant", "récent"]
+    kw = ["aujourd'hui", "actu", "prix", "météo", "score", "2024", "2025",
+          "2026", "combien", "qui est", "maintenant", "récent"]
     return any(k in q.lower() for k in kw)
 
 async def ask_ai(messages, with_web=False):
-    sys_p = "Tu es un assistant Discord utile et sympathique francophone. Réponds en 3 phrases max avec des emojis."
+    sys_p = ("Tu es un assistant Discord utile et sympathique francophone. "
+             "Réponds en 3 phrases max avec des emojis.")
     if with_web:
         sys_p += " Cite tes sources si possible."
     r = groq_client.chat.completions.create(
@@ -138,49 +142,68 @@ async def ask(ctx, *, question: str):
     cid = ctx.channel.id
     memory.setdefault(cid, []).append({"role": "user", "content": question})
     memory[cid] = memory[cid][-20:]
+    if need_web(question):
+        await msg.edit(embed=mk_embed("🌐 Recherche...", "Accès au web en cours..."))
     answer = await ask_ai(memory[cid], need_web(question))
+    if need_web(question):
+        answer += "\n\n🔗 *Source : recherche web*"
     memory[cid].append({"role": "assistant", "content": answer})
-    await msg.edit(embed=mk_embed("💭 Réponse", answer[:2000]))
+    await msg.edit(embed=mk_embed("🤖 Réponse IA", answer[:4000],
+                                  footer=f"Question de {ctx.author.display_name}"))
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ia(ctx):
     cid = ctx.channel.id
     if cid in active_channels:
-        active_channels.remove(cid)
-        await ctx.send(embed=mk_embed("🤖 IA Désactivée", "L'IA ne répondra plus automatiquement ici."))
+        active_channels.discard(cid)
+        memory.pop(cid, None)
+        await ctx.send(embed=mk_embed("🔴 IA Désactivée",
+            "L'IA ne répond plus dans ce salon.", 0xE74C3C), delete_after=5)
     else:
         active_channels.add(cid)
-        await ctx.send(embed=mk_embed("🤖 IA Activée", "L'IA répondra désormais automatiquement ici."))
+        memory[cid] = []
+        await ctx.send(embed=mk_embed("🟢 IA Activée",
+            "L'IA répond automatiquement ici.\n🔄 Mémoire réinitialisée toutes les 3h"))
         @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
     if member == ctx.author:
-        return await ctx.send(embed=mk_embed("❌ Erreur", "Tu ne peux pas te kick toi-même.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Erreur",
+            "Tu ne peux pas te kick toi-même.", 0xE74C3C), delete_after=5)
     if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
-        return await ctx.send(embed=mk_embed("❌ Hiérarchie", "Ce membre a un rôle ≥ au tien.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Hiérarchie",
+            "Ce membre a un rôle ≥ au tien.", 0xE74C3C), delete_after=5)
     try:
-        await member.send(embed=mk_embed("👢 Tu as été expulsé", f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}", 0xE67E22))
+        await member.send(embed=mk_embed("👢 Tu as été expulsé",
+            f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}", 0xE67E22))
     except (discord.Forbidden, discord.HTTPException):
         pass
     await member.kick(reason=f"{ctx.author} : {reason}")
-    await ctx.send(embed=mk_embed("👢 Membre expulsé", f"**Membre :** {member.mention}\n**Raison :** {reason}\n**Par :** {ctx.author.mention}", 0xE67E22))
+    await ctx.send(embed=mk_embed("👢 Membre expulsé",
+        f"**Membre :** {member.mention}\n**Raison :** {reason}\n"
+        f"**Par :** {ctx.author.mention}", 0xE67E22))
 
 @bot.command()
 @commands.has_permissions(ban_members=True)
 @commands.bot_has_permissions(ban_members=True)
 async def ban(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
     if member == ctx.author:
-        return await ctx.send(embed=mk_embed("❌ Erreur", "Tu ne peux pas te ban toi-même.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Erreur",
+            "Tu ne peux pas te ban toi-même.", 0xE74C3C), delete_after=5)
     if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
-        return await ctx.send(embed=mk_embed("❌ Hiérarchie", "Ce membre a un rôle ≥ au tien.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Hiérarchie",
+            "Ce membre a un rôle ≥ au tien.", 0xE74C3C), delete_after=5)
     try:
-        await member.send(embed=mk_embed("🔨 Tu as été banni", f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}", 0xE74C3C))
+        await member.send(embed=mk_embed("🔨 Tu as été banni",
+            f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}", 0xE74C3C))
     except (discord.Forbidden, discord.HTTPException):
         pass
     await member.ban(reason=f"{ctx.author} : {reason}", delete_message_days=0)
-    await ctx.send(embed=mk_embed("🔨 Membre banni", f"**Membre :** {member.mention}\n**Raison :** {reason}\n**Par :** {ctx.author.mention}", 0xE74C3C))
+    await ctx.send(embed=mk_embed("🔨 Membre banni",
+        f"**Membre :** {member.mention}\n**Raison :** {reason}\n"
+        f"**Par :** {ctx.author.mention}", 0xE74C3C))
 
 @bot.command()
 @commands.has_permissions(ban_members=True)
@@ -191,11 +214,45 @@ async def unban(ctx, *, user_input: str):
     if user_input.isdigit():
         target = next((e.user for e in bans if e.user.id == int(user_input)), None)
     if not target:
-        target = next((e.user for e in bans if str(e.user) == user_input or e.user.name == user_input), None)
+        target = next((e.user for e in bans
+            if str(e.user) == user_input or e.user.name == user_input), None)
     if not target:
-        return await ctx.send(embed=mk_embed("❌ Introuvable", "Utilisateur non trouvé.\nUtilise son **ID Discord** ou son **nom exact**.", 0xE74C3C), delete_after=6)
+        return await ctx.send(embed=mk_embed("❌ Introuvable",
+            "Utilisateur non trouvé.\nUtilise son **ID Discord** ou son **nom exact**.",
+            0xE74C3C), delete_after=6)
     await ctx.guild.unban(target, reason=str(ctx.author))
-    await ctx.send(embed=mk_embed("✅ Débanni", f"**Membre :** {target}\n**Par :** {ctx.author.mention}"))
+    await ctx.send(embed=mk_embed("✅ Débanni",
+        f"**Membre :** {target}\n**Par :** {ctx.author.mention}"))
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+@commands.bot_has_permissions(moderate_members=True)
+async def exclure(ctx, member: discord.Member, duree: int = 10, *, reason: str = "Aucune raison fournie"):
+    if member == ctx.author:
+        return await ctx.send(embed=mk_embed("❌ Erreur",
+            "Tu ne peux pas t'exclure toi-même.", 0xE74C3C), delete_after=5)
+    if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+        return await ctx.send(embed=mk_embed("❌ Hiérarchie",
+            "Ce membre a un rôle ≥ au tien.", 0xE74C3C), delete_after=5)
+    until = discord.utils.utcnow() + timedelta(minutes=duree)
+    await member.timeout(until, reason=f"{ctx.author} : {reason}")
+    try:
+        await member.send(embed=mk_embed("🔇 Tu as été exclu temporairement",
+            f"**Serveur :** {ctx.guild.name}\n**Durée :** {duree} min\n"
+            f"**Raison :** {reason}", 0xE74C3C))
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+    await ctx.send(embed=mk_embed("🔇 Exclusion temporaire",
+        f"**Membre :** {member.mention}\n**Durée :** `{duree} min`\n"
+        f"**Raison :** {reason}\n**Par :** {ctx.author.mention}", 0xE67E22))
+
+@bot.command()
+@commands.has_permissions(moderate_members=True)
+@commands.bot_has_permissions(moderate_members=True)
+async def unexclure(ctx, member: discord.Member):
+    await member.timeout(None, reason=str(ctx.author))
+    await ctx.send(embed=mk_embed("🔊 Exclusion levée",
+        f"**Membre :** {member.mention}\n**Par :** {ctx.author.mention}"))
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -208,10 +265,14 @@ async def warn(ctx, member: discord.Member, *, reason: str = "Aucune raison four
     })
     count = len(warnings[gid][uid])
     try:
-        await member.send(embed=mk_embed("⚠️ Avertissement reçu", f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}\n**Total :** {count}", 0xE67E22))
+        await member.send(embed=mk_embed("⚠️ Avertissement reçu",
+            f"**Serveur :** {ctx.guild.name}\n**Raison :** {reason}\n"
+            f"**Total :** {count}", 0xE67E22))
     except (discord.Forbidden, discord.HTTPException):
         pass
-    await ctx.send(embed=mk_embed("⚠️ Warn émis", f"**Membre :** {member.mention}\n**Raison :** {reason}\n**Par :** {ctx.author.mention}\n**Total :** `{count}`", 0xE67E22))
+    await ctx.send(embed=mk_embed("⚠️ Warn émis",
+        f"**Membre :** {member.mention}\n**Raison :** {reason}\n"
+        f"**Par :** {ctx.author.mention}\n**Total :** `{count}`", 0xE67E22))
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -219,8 +280,12 @@ async def warns(ctx, member: discord.Member):
     gid, uid = str(ctx.guild.id), str(member.id)
     w_list = warnings.get(gid, {}).get(uid, [])
     if not w_list:
-        return await ctx.send(embed=mk_embed("✅ Aucun warn", f"{member.mention} n'a aucun avertissement."))
-    desc = "\n".join(f"`{i+1}.` {w['reason']} — *{w['by']}* — `{w['at']}`" for i, w in enumerate(w_list))
+        return await ctx.send(embed=mk_embed("✅ Aucun warn",
+            f"{member.mention} n'a aucun avertissement."))
+    desc = "\n".join(
+        f"`{i+1}.` {w['reason']} — *{w['by']}* — `{w['at']}`"
+        for i, w in enumerate(w_list)
+    )
     await ctx.send(embed=mk_embed(f"⚠️ Warns — {member.display_name}", desc, 0xE67E22))
 
 @bot.command()
@@ -229,52 +294,62 @@ async def clearwarn(ctx, member: discord.Member):
     gid, uid = str(ctx.guild.id), str(member.id)
     if gid in warnings and uid in warnings[gid]:
         warnings[gid].pop(uid)
-    await ctx.send(embed=mk_embed("✅ Warns effacés", f"Avertissements de {member.mention} supprimés.\n**Par :** {ctx.author.mention}"))
+    await ctx.send(embed=mk_embed("✅ Warns effacés",
+        f"Avertissements de {member.mention} supprimés.\n**Par :** {ctx.author.mention}"))
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
 @commands.bot_has_permissions(manage_messages=True)
 async def clear(ctx, n: int = 5):
     if not 1 <= n <= 100:
-        return await ctx.send(embed=mk_embed("❌ Invalide", "Entre **1** et **100** messages.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Invalide",
+            "Entre **1** et **100** messages.", 0xE74C3C), delete_after=5)
     deleted = await ctx.channel.purge(limit=n)
-    await ctx.send(embed=mk_embed("🧹 Nettoyé", f"**{len(deleted)}** message(s) supprimé(s)\n**Par :** {ctx.author.mention}"), delete_after=4)
+    await ctx.send(embed=mk_embed("🧹 Nettoyé",
+        f"**{len(deleted)}** message(s) supprimé(s)\n**Par :** {ctx.author.mention}"), delete_after=4)
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 @commands.bot_has_permissions(manage_channels=True)
 async def slowmode(ctx, seconds: int = 0):
     if not 0 <= seconds <= 21600:
-        return await ctx.send(embed=mk_embed("❌ Invalide", "Entre **0** et **21 600** secondes.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Invalide",
+            "Entre **0** et **21 600** secondes.", 0xE74C3C), delete_after=5)
     await ctx.channel.edit(slowmode_delay=seconds)
     if seconds == 0:
         await ctx.send(embed=mk_embed("✅ Slowmode désactivé", f"{ctx.channel.mention}"))
     else:
-        await ctx.send(embed=mk_embed("⏱️ Slowmode activé", f"**Salon :** {ctx.channel.mention} → `{seconds}s`"))
+        await ctx.send(embed=mk_embed("⏱️ Slowmode activé",
+            f"**Salon :** {ctx.channel.mention} → `{seconds}s`"))
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 @commands.bot_has_permissions(manage_channels=True)
 async def lock(ctx):
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=False)
-    await ctx.send(embed=mk_embed("🔒 Salon verrouillé", f"{ctx.channel.mention} est en lecture seule.\n**Par :** {ctx.author.mention}", 0xE74C3C))
+    await ctx.send(embed=mk_embed("🔒 Salon verrouillé",
+        f"{ctx.channel.mention} est en lecture seule.\n**Par :** {ctx.author.mention}", 0xE74C3C))
 
 @bot.command()
 @commands.has_permissions(manage_channels=True)
 @commands.bot_has_permissions(manage_channels=True)
 async def unlock(ctx):
     await ctx.channel.set_permissions(ctx.guild.default_role, send_messages=True)
-    await ctx.send(embed=mk_embed("🔓 Salon déverrouillé", f"{ctx.channel.mention} est de nouveau ouvert.\n**Par :** {ctx.author.mention}"))
+    await ctx.send(embed=mk_embed("🔓 Salon déverrouillé",
+        f"{ctx.channel.mention} est de nouveau ouvert.\n**Par :** {ctx.author.mention}"))
     @bot.command(name="time")
 async def time_cmd(ctx, *, pays: str = None):
     if not pays:
         now = datetime.now(ZoneInfo("Europe/Paris"))
-        return await ctx.send(embed=mk_embed("⏰ Heure — France", f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
+        return await ctx.send(embed=mk_embed("⏰ Heure — France",
+            f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
     tz = TZ.get(pays.lower())
     if not tz:
-        return await ctx.send(embed=mk_embed("❌ Pays inconnu", "Essaie : `france`, `usa`, `japon`, `uk`, `maroc`...", 0xE74C3C), delete_after=6)
+        return await ctx.send(embed=mk_embed("❌ Pays inconnu",
+            "Essaie : `france`, `usa`, `japon`, `uk`, `maroc`...", 0xE74C3C), delete_after=6)
     now = datetime.now(ZoneInfo(tz))
-    await ctx.send(embed=mk_embed(f"⏰ Heure — {pays.title()}", f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
+    await ctx.send(embed=mk_embed(f"⏰ Heure — {pays.title()}",
+        f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
 
 @bot.command()
 async def ping(ctx):
@@ -289,14 +364,24 @@ async def userinfo(ctx, member: discord.Member = None):
     roles  = [r.mention for r in m.roles[1:]]
     r_str  = " ".join(roles[:8]) if roles else "`Aucun`"
     joined = m.joined_at.strftime("%d/%m/%Y") if m.joined_at else "—"
-    e = mk_embed(f"👤 {m.display_name}", f"**Mention :** {m.mention}\n**ID :** `{m.id}`\n**A rejoint :** {joined}\n**Compte créé :** {m.created_at.strftime('%d/%m/%Y')}\n**Rôles :** {r_str}")
+    e = mk_embed(f"👤 {m.display_name}",
+        f"**Mention :** {m.mention}\n**ID :** `{m.id}`\n"
+        f"**A rejoint :** {joined}\n"
+        f"**Compte créé :** {m.created_at.strftime('%d/%m/%Y')}\n"
+        f"**Rôles :** {r_str}")
     e.set_thumbnail(url=m.display_avatar.url)
     await ctx.send(embed=e)
 
 @bot.command()
 async def serverinfo(ctx):
     g = ctx.guild
-    e = mk_embed(f"🏰 {g.name}", f"**Propriétaire :** {g.owner.mention}\n**Membres :** `{g.member_count}`\n**Salons texte :** `{len(g.text_channels)}`\n**Salons vocaux :** `{len(g.voice_channels)}`\n**Rôles :** `{len(g.roles)}`\n**Créé le :** {g.created_at.strftime('%d/%m/%Y')}")
+    e = mk_embed(f"🏰 {g.name}",
+        f"**Propriétaire :** {g.owner.mention}\n"
+        f"**Membres :** `{g.member_count}`\n"
+        f"**Salons texte :** `{len(g.text_channels)}`\n"
+        f"**Salons vocaux :** `{len(g.voice_channels)}`\n"
+        f"**Rôles :** `{len(g.roles)}`\n"
+        f"**Créé le :** {g.created_at.strftime('%d/%m/%Y')}")
     if g.icon:
         e.set_thumbnail(url=g.icon.url)
     await ctx.send(embed=e)
@@ -318,20 +403,24 @@ BALL = [
 
 @bot.command()
 async def coin(ctx):
-    await ctx.send(embed=mk_embed("🪙 Pile ou Face", random.choice(["🪙 **Pile**", "🪙 **Face**"])))
+    await ctx.send(embed=mk_embed("🪙 Pile ou Face",
+        random.choice(["🪙 **Pile**", "🪙 **Face**"])))
 
 @bot.command()
 async def roll(ctx, maximum: int = 100):
     if maximum < 2:
-        return await ctx.send(embed=mk_embed("❌ Erreur", "Le max doit être ≥ `2`.", 0xE74C3C), delete_after=5)
+        return await ctx.send(embed=mk_embed("❌ Erreur",
+            "Le max doit être ≥ `2`.", 0xE74C3C), delete_after=5)
     n = random.randint(1, maximum)
     await ctx.send(embed=mk_embed("🎲 Dé lancé", f"Résultat : **{n}** *(1 – {maximum})*"))
 
 @bot.command(name="8ball")
 async def _8ball(ctx, *, question: str = None):
     if not question:
-        return await ctx.send(embed=mk_embed("❌ Question manquante", "Usage : `!8ball <question>`", 0xE74C3C), delete_after=5)
-    await ctx.send(embed=mk_embed("🎱 8-Ball", f"**❓ {question}**\n\n{random.choice(BALL)}"))
+        return await ctx.send(embed=mk_embed("❌ Question manquante",
+            "Usage : `!8ball <question>`", 0xE74C3C), delete_after=5)
+    await ctx.send(embed=mk_embed("🎱 8-Ball",
+        f"**❓ {question}**\n\n{random.choice(BALL)}"))
 
 @bot.command()
 async def ratio(ctx, member: discord.Member = None):
@@ -349,7 +438,8 @@ async def sus(ctx, member: discord.Member = None):
 async def pp(ctx, member: discord.Member = None):
     t    = member or ctx.author
     size = random.randint(0, 20)
-    await ctx.send(embed=mk_embed("📏 PP Meter", f"{t.mention}\n`8{'=' * size}D` — `{size} cm`"))
+    await ctx.send(embed=mk_embed("📏 PP Meter",
+        f"{t.mention}\n`8{'=' * size}D` — `{size} cm`"))
 
 @bot.command(name="help")
 async def help_cmd(ctx):
@@ -382,6 +472,7 @@ async def help_cmd(ctx):
     if is_mod:
         e.add_field(name="🛡️ Modération", inline=False, value=(
             "`!kick`  ·  `!ban`  ·  `!unban`\n"
+            "`!exclure [min]`  ·  `!unexclure`\n"
             "`!warn`  ·  `!warns`  ·  `!clearwarn`\n"
             "`!clear`  ·  `!slowmode`  ·  `!lock`  ·  `!unlock`"
         ))
