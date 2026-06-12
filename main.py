@@ -200,7 +200,7 @@ async def ia(ctx):
         active_channels.add(cid)
         memory[cid] = []
         await ctx.send(embed=mk_embed(tr("ia_on"), tr("ia_on_d")))
-      @bot.command()
+@bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
