@@ -739,6 +739,6 @@ async def help_modo(ctx):
         e.add_field(name="📢!announce #salon <message>", value="Envoyer une annonce en embed soigné *(admin)*", inline=False)
         e.add_field(name="✏️!setnick @membre <pseudo>", value="Modifier le pseudo serveur d'un membre", inline=False)
         e.set_footer(text=f"Block2BlockFr™ · {ctx.author.display_name}")
-  await ctx.send(embed=e)
+        await ctx.send(embed=e)
 
 bot.run(TOKEN)
