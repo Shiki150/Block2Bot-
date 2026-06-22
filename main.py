@@ -202,7 +202,7 @@ async def ia(ctx):
         active_channels.add(cid)
         memory[cid] = []
         await ctx.send(embed=mk_embed(tr("ia_on"), tr("ia_on_d")))
-        @bot.command()
+@bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
@@ -480,7 +480,7 @@ async def counter_help(ctx):
               "Le gagnant reçoit automatiquement un rôle spécial 🎖️", inline=False)
     e.set_footer(text=f"Block2BlockFr™ · {ctx.author.display_name}")
     await ctx.send(embed=e)
-    @bot.command(name="time")
+@bot.command(name="time")
 async def time_cmd(ctx, *, pays: str = None):
     if not pays:
         now = datetime.now(ZoneInfo("Europe/Paris"))
