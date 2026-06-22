@@ -309,8 +309,7 @@ async def warns(ctx, member: discord.Member):
     gid, uid = str(ctx.guild.id), str(member.id)
     w_list = warnings.get(gid, {}).get(uid, [])
     if not w_list:
-        return await ctx.send(embed=mk_embed("✅ Aucun warn",
-            f"{member.mention} n'a aucun avertissement."))
+        return await ctx.send(embed=mk_embed("✅ Aucun warn", f"{member.mention} n'a aucun avertissement."))
     desc = "\n".join(f"`{i+1}.` {w['reason']} — *{w['by']}* — `{w['at']}`" for i, w in enumerate(w_list))
     await ctx.send(embed=mk_embed(f"⚠️ Warns — {member.display_name}", desc, 0xE67E22))
 
@@ -453,10 +452,15 @@ async def stopcount(ctx):
     winner_extra = ""
     winner = ctx.guild.get_member(sorted_counts[0][0]) if sorted_counts else None
     if winner:
-        super_role = discord.utils.get(ctx.guild.roles, name="SuperCounter")
+        super_role = discord.utils.get(ctx.guild.roles, name="Super Counter")
         if super_role:
+            for holder in list(super_role.members):
+                try:
+                    await holder.remove_roles(super_role, reason="Super Counter — rotation gagnant")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
             try:
-                await winner.add_roles(super_role, reason="SuperCounter — gagnant du comptage")
+                await winner.add_roles(super_role, reason="Super Counter — gagnant du comptage")
                 winner_extra = f"\n\n🏆 {winner.mention} remporte {super_role.mention} !"
             except (discord.Forbidden, discord.HTTPException):
                 winner_extra = f"\n\n🏆 Gagnant : {winner.mention}"
@@ -468,16 +472,16 @@ async def stopcount(ctx):
 
 @bot.command(name="counter")
 async def counter_help(ctx):
-    e = discord.Embed(title="📊 SuperCounter — Aide",
+    e = discord.Embed(title="📊 Super Counter — Aide",
         description="Système de comptage de messages par salon",
         color=BOT_COLOR, timestamp=datetime.now(timezone.utc))
-    e.add_field(name="🟢 !supercounter", value="Démarre le comptage dans ce salon *(admin)*", inline=False)
-    e.add_field(name="🔴 !stopcount",    value="Arrête le comptage et affiche le top 15 *(admin)*", inline=False)
-    e.add_field(name="❓ !counter",      value="Affiche cette page d'aide", inline=False)
+    e.add_field(name="🟢 !supercounter", value="Démarre le comptage dans ce salon *(admin)*",          inline=False)
+    e.add_field(name="🔴 !stopcount",    value="Arrête et affiche le top 15 — attribue le rôle 🏆 *(admin)*", inline=False)
+    e.add_field(name="❓ !counter",      value="Affiche cette page d'aide",                             inline=False)
     e.add_field(name="ℹ️ Fonctionnement",
         value="Le comptage est lié au salon où `!supercounter` est lancé.\n"
               "Les commandes `!...` ne sont pas comptées.\n"
-              "Le gagnant reçoit automatiquement un rôle spécial 🎖️", inline=False)
+              "À chaque `!stopcount`, le rôle est retiré à l'ancien gagnant et donné au nouveau 🔄", inline=False)
     e.set_footer(text=f"Block2BlockFr™ · {ctx.author.display_name}")
     await ctx.send(embed=e)
 @bot.command(name="time")
