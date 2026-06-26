@@ -376,7 +376,7 @@ class TicketActionView(discord.ui.View):
     e.set_footer(text=BOT_NAME)
     await ctx.send(embed=e, view=TicketView())
 @bot.command()
-@commands.has_permissions(kick_members=True
+@commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
 async def kick(ctx, member: discord.Member, *, reason: str = "Aucune raison fournie"):
     if member == ctx.author:
