@@ -349,24 +349,24 @@ class TicketActionView(discord.ui.View):
         await chan.delete(reason=f"Ticket fermé par {interaction.user}")
 
 
-    @bot.command()
-    @commands.has_permissions(administrator=True)
-    async def ticketsetup(ctx):
-        e = discord.Embed(
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticketsetup(ctx):
+    e = discord.Embed(
         title="🎫 **Aide • Tickets**",
         description=(
             "Besoin d'aide? Ouvre un ticket ci-dessous.\n\n"
             "**📋 Fonctionnement :**\n"
             "> 1️⃣ Clique sur `Créer un ticket`\n"
             "> 2️⃣ Indique la raison de ta demande\n"
-            "> 3️⃣ Un salon privé sera créé pour toi\n\n"
+            "> 3️⃣ Un salon privé sera créé pour toi\n"
             "**⚠️ Règles importantes :**\n"
             "> • Pas de spam de ticket\n"
             "> • Une seule mention admin MAX sauf si discussion sur le ticket\n"
             "> • Les demandes de rôle sont interdites sauf si gagné dans giveaways\n"
             "> • Pas de tickets troll\n"
             "> • Pas de tickets inutiles\n"
-            "> • Pas de tickets dont la réponse est dans le règlement\n\n"
+            "> • Pas de tickets dont la réponse est dans le règlement\n"
             "> ⚠️ Le non-respect de ces règles peut entraîner un avertissement ou autre sanction.\n\n"
             "**🔒 Confidentialité :** Seul toi et le staff verront le ticket."
         ),
