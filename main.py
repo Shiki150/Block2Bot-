@@ -228,6 +228,27 @@ async def ia(ctx):
         await ctx.send(embed=mk_embed(tr("ia_on"), tr("ia_on_d")))
         claimed_tickets: dict = {}
 
+claimed_tickets:       dict = {}
+ticket_alert_channels: dict = {}
+
+def get_alert_channel(guild_id: int):
+    if guild_id in ticket_alert_channels:
+        return ticket_alert_channels[guild_id]
+    try:
+        with open(f"data/alert_{guild_id}.txt", "r") as f:
+            cid = int(f.read().strip())
+            ticket_alert_channels[guild_id] = cid
+            return cid
+    except Exception:
+        return None
+
+def save_alert_channel(guild_id: int, channel_id: int):
+    os.makedirs("data", exist_ok=True)
+    ticket_alert_channels[guild_id] = channel_id
+    with open(f"data/alert_{guild_id}.txt", "w") as f:
+        f.write(str(channel_id))
+
+
 class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
     raison = discord.ui.TextInput(
         label="Raison du ticket",
@@ -237,13 +258,14 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         guild  = interaction.guild
         user   = interaction.user
         cat    = discord.utils.get(guild.categories, name="🎫 Tickets")
         if cat:
             for ch in cat.text_channels:
                 if ch.topic == str(user.id):
-                    return await interaction.response.send_message(
+                    return await interaction.followup.send(
                         embed=mk_embed("❌ Ticket existant",
                             f"Tu as déjà un ticket ouvert : {ch.mention}", 0xE74C3C),
                         ephemeral=True
@@ -253,7 +275,7 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
         num    = increment_ticket_count()
         pseudo = user.display_name.lower().replace(" ", "-")
         name   = f"ticket-{num}-{pseudo}"
-        staff  = discord.utils.get(guild.roles, name=" Staff ")
+        staff  = discord.utils.get(guild.roles, name="Staff")
         ow = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             user:               discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
@@ -262,10 +284,16 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
         if staff:
             ow[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
         chan = await guild.create_text_channel(name, category=cat, overwrites=ow, topic=str(user.id))
-        demandes = discord.utils.get(guild.text_channels, name="#demandes-de-ticket")
-        if demandes:
-            ping = staff.mention if staff else "@Staff"
-            await demandes.send(f"🎫 Nouveau ticket créé par {user.mention} : {chan.mention} — {ping}")
+        alert_cid = get_alert_channel(guild.id)
+        if alert_cid:
+            alert_chan = guild.get_channel(alert_cid)
+            if alert_chan:
+                ping = staff.mention if staff else "@Staff"
+                await alert_chan.send(
+                    embed=mk_embed("🎫 Nouveau ticket",
+                        f"**Membre :** {user.mention}\n**Salon :** {chan.mention}\n**Staff :** {ping}",
+                        0x3498db)
+                )
         e = discord.Embed(
             title=f"🎫 Ticket #{num}",
             description=(
@@ -278,7 +306,7 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
         )
         e.set_footer(text=BOT_NAME)
         await chan.send(content=user.mention, embed=e, view=TicketActionView())
-        await interaction.response.send_message(
+        await interaction.followup.send(
             embed=mk_embed("✅ Ticket créé !", f"Ton ticket a été ouvert : {chan.mention}"),
             ephemeral=True
         )
@@ -288,7 +316,7 @@ class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎟️ Créer un ticket", style=discord.ButtonStyle.success, custom_id="create_ticket")
+    @discord.ui.button(label="📩 Créer un ticket", style=discord.ButtonStyle.success, custom_id="create_ticket")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TicketModal())
 
@@ -302,7 +330,7 @@ class TicketActionView(discord.ui.View):
         staff = discord.utils.get(interaction.guild.roles, name="Staff")
         if not staff or staff not in interaction.user.roles:
             return await interaction.response.send_message(
-                embed=mk_embed("❌ Accès refusé", "Seul le staff peut claim un ticket.", 0xE74C3C),
+                embed=mk_embed("❌ Accès refusé", "Seul le **Staff** peut claim un ticket.", 0xE74C3C),
                 ephemeral=True
             )
         cid = interaction.channel.id
@@ -313,60 +341,59 @@ class TicketActionView(discord.ui.View):
                 ephemeral=True
             )
         claimed_tickets[cid] = interaction.user.mention
-        og = interaction.message
-        if og.embeds:
-            old = og.embeds[0]
-            new = discord.Embed(
-                title=old.title,
-                description=(
-                    (old.description or "") +
-                    f"\n**🔒 Claim par :** {interaction.user.mention}\n"
-                    f"**📊 Statut :** Pris en charge"
-                ),
-                color=0x2ECC71,
-                timestamp=datetime.now(timezone.utc)
+        if interaction.message and interaction.message.embeds:
+            old  = interaction.message.embeds[0]
+            desc = (old.description or "").replace(
+                "**📊 Statut :** En attente",
+                f"**📊 Statut :** Pris en charge ✅\n**🔒 Claim par :** {interaction.user.mention}"
             )
+            new = discord.Embed(title=old.title, description=desc, color=0x2ECC71,
+                                timestamp=datetime.now(timezone.utc))
             new.set_footer(text=BOT_NAME)
-            await og.edit(embed=new)
-        await interaction.response.send_message(
-            f"✅ {interaction.user.mention} a pris en charge ce ticket."
+            await interaction.response.edit_message(embed=new, view=self)
+        else:
+            await interaction.response.defer()
+        await interaction.followup.send(
+            embed=mk_embed("✅ Ticket pris en charge",
+                f"{interaction.user.mention} gère maintenant ce ticket. 🎯")
         )
 
     @discord.ui.button(label="🗑️ Fermer le ticket", style=discord.ButtonStyle.red, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        staff    = discord.utils.get(interaction.guild.roles, name="Staff")
-        chan     = interaction.channel
-        is_auth  = chan.topic and str(interaction.user.id) == chan.topic
-        is_staff = staff and staff in interaction.user.roles
-        if not is_auth and not is_staff:
-            return await interaction.response.send_message(
-                embed=mk_embed("❌ Accès refusé", "Tu ne peux pas fermer ce ticket.", 0xE74C3C),
-                ephemeral=True
-            )
-        await interaction.response.send_message("🗑️ Fermeture du ticket dans 5 secondes...")
+        await interaction.response.defer()
+        chan = interaction.channel
+        msg  = await chan.send(embed=mk_embed("🗑️ Fermeture du ticket",
+            "Fermeture dans **5** secondes... ⏳", 0xE74C3C))
+        for i in range(4, 0, -1):
+            await asyncio.sleep(1)
+            await msg.edit(embed=mk_embed("🗑️ Fermeture du ticket",
+                f"Fermeture dans **{i}** seconde{'s' if i > 1 else ''}... ⏳", 0xE74C3C))
+        await asyncio.sleep(1)
         claimed_tickets.pop(chan.id, None)
-        await asyncio.sleep(5)
-        await chan.delete(reason=f"Ticket fermé par {interaction.user}")
+        try:
+            await chan.delete(reason=f"Ticket fermé par {interaction.user}")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ticketsetup(ctx):
     e = discord.Embed(
-        title="🎫 **Aide • Tickets**",
+        title="🎫 **Centre de Support**",
         description=(
             "Besoin d'aide? Ouvre un ticket ci-dessous.\n\n"
             "**📋 Fonctionnement :**\n"
             "> 1️⃣ Clique sur `Créer un ticket`\n"
             "> 2️⃣ Indique la raison de ta demande\n"
-            "> 3️⃣ Un salon privé sera créé pour toi\n"
+            "> 3️⃣ Un salon privé sera créé pour toi\n\n"
             "**⚠️ Règles importantes :**\n"
             "> • Pas de spam de ticket\n"
             "> • Une seule mention admin MAX sauf si discussion sur le ticket\n"
             "> • Les demandes de rôle sont interdites sauf si gagné dans giveaways\n"
             "> • Pas de tickets troll\n"
             "> • Pas de tickets inutiles\n"
-            "> • Pas de tickets dont la réponse est dans le règlement\n"
+            "> • Pas de tickets dont la réponse est dans le règlement\n\n"
             "> ⚠️ Le non-respect de ces règles peut entraîner un avertissement ou autre sanction.\n\n"
             "**🔒 Confidentialité :** Seul toi et le staff verront le ticket."
         ),
@@ -375,6 +402,15 @@ async def ticketsetup(ctx):
     )
     e.set_footer(text=BOT_NAME)
     await ctx.send(embed=e, view=TicketView())
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def ticketalert(ctx):
+    save_alert_channel(ctx.guild.id, ctx.channel.id)
+    staff = discord.utils.get(ctx.guild.roles, name="Staff")
+    ping  = staff.mention if staff else "@Staff"
+    await ctx.send(embed=mk_embed("✅ Salon d'alertes tickets défini",
+        f"Chaque nouveau ticket enverra une alerte ici avec {ping}."))
 @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
