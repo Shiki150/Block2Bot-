@@ -262,7 +262,7 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
         if staff:
             ow[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
         chan = await guild.create_text_channel(name, category=cat, overwrites=ow, topic=str(user.id))
-        demandes = discord.utils.get(guild.text_channels, name="demandes-de-ticket")
+        demandes = discord.utils.get(guild.text_channels, name="#demandes-de-ticket")
         if demandes:
             ping = staff.mention if staff else "@Staff"
             await demandes.send(f"🎫 Nouveau ticket créé par {user.mention} : {chan.mention} — {ping}")
@@ -288,7 +288,7 @@ class TicketView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="📩 Créer un ticket", style=discord.ButtonStyle.success, custom_id="create_ticket")
+    @discord.ui.button(label="🎟️ Créer un ticket", style=discord.ButtonStyle.success, custom_id="create_ticket")
     async def create_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(TicketModal())
 
@@ -299,7 +299,7 @@ class TicketActionView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Claim le ticket", style=discord.ButtonStyle.blurple, custom_id="claim_ticket")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        staff = discord.utils.get(interaction.guild.roles, name=" Staff ")
+        staff = discord.utils.get(interaction.guild.roles, name="Staff")
         if not staff or staff not in interaction.user.roles:
             return await interaction.response.send_message(
                 embed=mk_embed("❌ Accès refusé", "Seul le staff peut claim un ticket.", 0xE74C3C),
