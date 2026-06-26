@@ -352,7 +352,7 @@ class TicketActionView(discord.ui.View):
     @bot.command()
     @commands.has_permissions(administrator=True)
     async def ticketsetup(ctx):
-    e = discord.Embed(
+        e = discord.Embed(
         title="🎫 **Aide • Tickets**",
         description=(
             "Besoin d'aide? Ouvre un ticket ci-dessous.\n\n"
