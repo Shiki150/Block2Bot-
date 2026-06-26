@@ -351,7 +351,7 @@ class TicketActionView(discord.ui.View):
 
     @bot.command()
     @commands.has_permissions(administrator=True)
-async def ticketsetup(ctx):
+    async def ticketsetup(ctx):
     e = discord.Embed(
         title="🎫 **Centre de Support**",
         description=(
