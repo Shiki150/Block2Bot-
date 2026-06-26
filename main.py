@@ -334,7 +334,7 @@ class TicketActionView(discord.ui.View):
 
     @discord.ui.button(label="🗑️ Fermer le ticket", style=discord.ButtonStyle.red, custom_id="close_ticket")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        staff    = discord.utils.get(interaction.guild.roles, name=" Staff ")
+        staff    = discord.utils.get(interaction.guild.roles, name="Staff")
         chan     = interaction.channel
         is_auth  = chan.topic and str(interaction.user.id) == chan.topic
         is_staff = staff and staff in interaction.user.roles
