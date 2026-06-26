@@ -1000,7 +1000,8 @@ async def help_modo(ctx):
         e.add_field(name="✏️ !setnick @membre <pseudo>",      value="Modifier le pseudo serveur d'un membre",               inline=False)
         e.add_field(name="🌐 !serveurs",                      value="Lister tous les serveurs où le bot est présent *(admin B2B only)*", inline=False)
         e.add_field(name="🎫 !ticketsetup",                   value="Déployer le panneau de support tickets dans ce salon *(admin)*", inline=False)
-    e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
+        e.add_field(name="🎟️ !ticketalert",                   value="Activer les alertes de tickets dans ce salon *(admin)*", inline=False)
+        e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
     await ctx.send(embed=e)
 
 bot.run(TOKEN)
