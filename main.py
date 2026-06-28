@@ -1,4 +1,4 @@
-import discord, os, random, asyncio
+import discord, os, random, asyncio, json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from discord.ext import commands, tasks
@@ -21,6 +21,7 @@ active_channels:   set  = set()
 memory:            dict = {}
 warnings:          dict = {}
 counting_channels: dict = {}
+claimed_tickets:   dict = {}
 
 TZ = {
     "france": "Europe/Paris",       "paris":     "Europe/Paris",
@@ -75,19 +76,44 @@ def is_mod(ctx):
         ctx.author.guild_permissions.administrator,
     ])
 
-def get_ticket_count():
+def get_server_config(guild_id: int) -> dict:
     os.makedirs("data", exist_ok=True)
     try:
-        with open("data/ticket_count.txt", "r") as f:
+        with open(f"data/config_{guild_id}.json", "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_server_config(guild_id: int, config: dict):
+    os.makedirs("data", exist_ok=True)
+    with open(f"data/config_{guild_id}.json", "w") as f:
+        json.dump(config, f)
+
+def get_ticket_count(guild_id: int) -> int:
+    try:
+        with open(f"data/tickets_{guild_id}.txt", "r") as f:
             return int(f.read().strip())
     except Exception:
         return 0
 
-def increment_ticket_count():
-    count = get_ticket_count() + 1
-    with open("data/ticket_count.txt", "w") as f:
+def increment_ticket_count(guild_id: int) -> int:
+    os.makedirs("data", exist_ok=True)
+    count = get_ticket_count(guild_id) + 1
+    with open(f"data/tickets_{guild_id}.txt", "w") as f:
         f.write(str(count))
     return count
+
+async def send_private(ctx, embed):
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send(embed=mk_embed("📬 Envoyé !", "Consulte tes messages privés 📩"), delete_after=5)
+    except (discord.Forbidden, discord.HTTPException):
+        await ctx.send(embed=embed, delete_after=30)
+
+CODED_BY_KW = [
+    "qui t'a codé", "qui t'as codé", "who coded you", "qui t'as fait",
+    "qui t'a fait", "qui t'a créé", "qui t'as créé", "ton créateur", "who made you",
+]
 
 @bot.before_invoke
 async def auto_delete(ctx):
@@ -128,11 +154,6 @@ async def on_guild_join(guild):
         await owner.send(embed=e)
     except (discord.Forbidden, discord.HTTPException):
         pass
-
-CODED_BY_KW = [
-    "qui t'a codé", "qui t'as codé", "who coded you", "qui t'as fait",
-    "qui t'a fait", "qui t'a créé", "qui t'as créé", "ton créateur", "who made you",
-]
 
 @bot.event
 async def on_message(msg):
@@ -221,34 +242,11 @@ async def ia(ctx):
     if cid in active_channels:
         active_channels.discard(cid)
         memory.pop(cid, None)
-        await ctx.send(embed=mk_embed(tr("ia_off"), tr("ia_off_d"), 0xE74C3C), delete_after=5)
+        await ctx.send(embed=mk_embed(tr("ia_off"), tr("ia_off_d"), 0xE74C3C))
     else:
         active_channels.add(cid)
         memory[cid] = []
         await ctx.send(embed=mk_embed(tr("ia_on"), tr("ia_on_d")))
-        claimed_tickets: dict = {}
-
-claimed_tickets:       dict = {}
-ticket_alert_channels: dict = {}
-
-def get_alert_channel(guild_id: int):
-    if guild_id in ticket_alert_channels:
-        return ticket_alert_channels[guild_id]
-    try:
-        with open(f"data/alert_{guild_id}.txt", "r") as f:
-            cid = int(f.read().strip())
-            ticket_alert_channels[guild_id] = cid
-            return cid
-    except Exception:
-        return None
-
-def save_alert_channel(guild_id: int, channel_id: int):
-    os.makedirs("data", exist_ok=True)
-    ticket_alert_channels[guild_id] = channel_id
-    with open(f"data/alert_{guild_id}.txt", "w") as f:
-        f.write(str(channel_id))
-
-
 class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
     raison = discord.ui.TextInput(
         label="Raison du ticket",
@@ -261,6 +259,7 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
         await interaction.response.defer(ephemeral=True)
         guild  = interaction.guild
         user   = interaction.user
+        cfg    = get_server_config(guild.id)
         cat    = discord.utils.get(guild.categories, name="🎫 Tickets")
         if cat:
             for ch in cat.text_channels:
@@ -272,26 +271,32 @@ class TicketModal(discord.ui.Modal, title="Nouveau ticket"):
                     )
         if not cat:
             cat = await guild.create_category("🎫 Tickets")
-        num    = increment_ticket_count()
-        pseudo = user.display_name.lower().replace(" ", "-")
-        name   = f"ticket-{num}-{pseudo}"
-        staff  = discord.utils.get(guild.roles, name="Staff")
+        num          = increment_ticket_count(guild.id)
+        pseudo       = user.display_name.lower().replace(" ", "-")
+        name         = f"ticket-{num}-{pseudo}"
+        staff_rid    = cfg.get("ticket_staff_role")
+        staff_role   = guild.get_role(staff_rid) if staff_rid else None
         ow = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             user:               discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
             guild.me:           discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
         }
-        if staff:
-            ow[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+        if staff_role:
+            ow[staff_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
         chan = await guild.create_text_channel(name, category=cat, overwrites=ow, topic=str(user.id))
-        alert_cid = get_alert_channel(guild.id)
+        alert_cid = cfg.get("ticket_alert_channel")
         if alert_cid:
             alert_chan = guild.get_channel(alert_cid)
             if alert_chan:
-                ping = staff.mention if staff else "@Staff"
+                ping_rid   = cfg.get("ticket_ping_role")
+                ping_role  = guild.get_role(ping_rid) if ping_rid else None
+                ping_str   = ping_role.mention if ping_role else (staff_role.mention if staff_role else "")
                 await alert_chan.send(
+                    content=ping_str,
                     embed=mk_embed("🎫 Nouveau ticket",
-                        f"**Membre :** {user.mention}\n**Salon :** {chan.mention}\n**Staff :** {ping}",
+                        f"**Membre :** {user.mention}\n"
+                        f"**Salon :** {chan.mention}\n"
+                        f"**Raison :** {self.raison.value}",
                         0x3498db)
                 )
         e = discord.Embed(
@@ -327,8 +332,12 @@ class TicketActionView(discord.ui.View):
 
     @discord.ui.button(label="🔒 Claim le ticket", style=discord.ButtonStyle.blurple, custom_id="claim_ticket")
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
-        staff = discord.utils.get(interaction.guild.roles, name="Staff")
-        if not staff or staff not in interaction.user.roles:
+        cfg        = get_server_config(interaction.guild.id)
+        staff_rid  = cfg.get("ticket_staff_role")
+        staff_role = interaction.guild.get_role(staff_rid) if staff_rid else None
+        is_staff   = (staff_role and staff_role in interaction.user.roles) or \
+                     interaction.user.guild_permissions.administrator
+        if not is_staff:
             return await interaction.response.send_message(
                 embed=mk_embed("❌ Accès refusé", "Seul le **Staff** peut claim un ticket.", 0xE74C3C),
                 ephemeral=True
@@ -403,14 +412,26 @@ async def ticketsetup(ctx):
     e.set_footer(text=BOT_NAME)
     await ctx.send(embed=e, view=TicketView())
 
+
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def ticketalert(ctx):
-    save_alert_channel(ctx.guild.id, ctx.channel.id)
-    staff = discord.utils.get(ctx.guild.roles, name="Staff")
-    ping  = staff.mention if staff else "@Staff"
-    await ctx.send(embed=mk_embed("✅ Salon d'alertes tickets défini",
-        f"Chaque nouveau ticket enverra une alerte ici avec {ping}."))
+async def ticketalert(ctx, ping_role: discord.Role = None, staff_role: discord.Role = None):
+    if not ping_role or not staff_role:
+        return await ctx.send(embed=mk_embed("❌ Usage incorrect",
+            "**Usage :** `!ticketalert @rôle_ping @rôle_staff`\n\n"
+            "**@rôle_ping** — Rôle mentionné à chaque nouveau ticket\n"
+            "**@rôle_staff** — Rôle qui peut voir et claim les tickets\n\n"
+            "Les alertes seront envoyées dans **ce salon**.", 0xE74C3C), delete_after=12)
+    cfg = get_server_config(ctx.guild.id)
+    cfg["ticket_alert_channel"] = ctx.channel.id
+    cfg["ticket_ping_role"]     = ping_role.id
+    cfg["ticket_staff_role"]    = staff_role.id
+    save_server_config(ctx.guild.id, cfg)
+    await ctx.send(embed=mk_embed("✅ Configuration tickets sauvegardée",
+        f"**📣 Salon d'alertes :** {ctx.channel.mention}\n"
+        f"**🔔 Rôle pingé :** {ping_role.mention}\n"
+        f"**🛡️ Rôle staff :** {staff_role.mention}\n\n"
+        "Chaque nouveau ticket enverra une alerte ici avec mention automatique."))
 @bot.command()
 @commands.has_permissions(kick_members=True)
 @commands.bot_has_permissions(kick_members=True)
@@ -517,9 +538,9 @@ async def warns(ctx, member: discord.Member):
     gid, uid = str(ctx.guild.id), str(member.id)
     w_list = warnings.get(gid, {}).get(uid, [])
     if not w_list:
-        return await ctx.send(embed=mk_embed("✅ Aucun warn", f"{member.mention} n'a aucun avertissement."))
+        return await send_private(ctx, mk_embed("✅ Aucun warn", f"{member.mention} n'a aucun avertissement."))
     desc = "\n".join(f"`{i+1}.` {w['reason']} — *{w['by']}* — `{w['at']}`" for i, w in enumerate(w_list))
-    await ctx.send(embed=mk_embed(f"⚠️ Warns — {member.display_name}", desc, 0xE67E22))
+    await send_private(ctx, mk_embed(f"⚠️ Warns — {member.display_name}", desc, 0xE67E22))
 
 @bot.command()
 @commands.has_permissions(manage_messages=True)
@@ -584,7 +605,8 @@ async def setnick(ctx, member: discord.Member, *, pseudo: str):
     old = member.display_name
     await member.edit(nick=pseudo, reason=str(ctx.author))
     await ctx.send(embed=mk_embed("✏️ Pseudo modifié",
-        f"**Membre :** {member.mention}\n**Avant :** `{old}`\n**Après :** `{pseudo}`\n**Par :** {ctx.author.mention}"))
+        f"**Membre :** {member.mention}\n**Avant :** `{old}`\n**Après :** `{pseudo}`\n**Par :** {ctx.author.mention}"),
+        delete_after=10)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -594,7 +616,7 @@ async def serveurs(ctx):
             f"Cette commande est exclusivement disponible sur **{B2B_SERVER_NAME}**.",
             0xE74C3C), delete_after=6)
     loading = await ctx.send(embed=mk_embed("🔍 Chargement...",
-        f"Récupération de **{len(bot.guilds)}** serveur(s) en cours..."))
+        f"Récupération de **{len(bot.guilds)}** serveur(s)..."))
     lines = []
     for guild in bot.guilds:
         invite_url = "`—`"
@@ -617,10 +639,10 @@ async def serveurs(ctx):
             f"🔗 {invite_url}"
         )
     await loading.delete()
-    desc = "\n\n".join(lines) if lines else "Aucun serveur trouvé."
+    desc   = "\n\n".join(lines) if lines else "Aucun serveur trouvé."
     chunks = [desc[i:i+3900] for i in range(0, len(desc), 3900)]
     for idx, chunk in enumerate(chunks):
-        title = f"🌐 Serveurs du bot — {len(bot.guilds)} au total" if idx == 0 else "🌐 Serveurs (suite)"
+        title = f"🌐 Serveurs — {len(bot.guilds)} au total" if idx == 0 else "🌐 Serveurs (suite)"
         await ctx.send(embed=mk_embed(title, chunk, footer=f"Demandé par {ctx.author.display_name} · {BOT_NAME}"))
 @bot.command(name="supercounter")
 @commands.has_permissions(administrator=True)
@@ -628,11 +650,10 @@ async def supercounter(ctx):
     cid = ctx.channel.id
     if cid in counting_channels:
         return await ctx.send(embed=mk_embed("⚠️ Comptage déjà actif",
-            f"Un comptage est déjà en cours dans {ctx.channel.mention}.\nUtilise `!stopcount` pour l'arrêter.",
-            0xE67E22), delete_after=6)
+            f"Un comptage est déjà en cours ici.\nUtilise `!stopcount` pour l'arrêter.", 0xE67E22), delete_after=6)
     counting_channels[cid] = {}
     await ctx.send(embed=mk_embed("📊 Comptage démarré !",
-        f"Je compte maintenant les messages dans {ctx.channel.mention}.\n\n"
+        f"Je compte les messages dans {ctx.channel.mention}.\n\n"
         "**➜** `!stopcount` — Arrêter et afficher le classement\n"
         "**➜** `!counter` — Aide du système",
         footer=f"Démarré par {ctx.author.display_name} · {BOT_NAME}"))
@@ -643,15 +664,13 @@ async def stopcount(ctx):
     cid = ctx.channel.id
     if cid not in counting_channels:
         return await ctx.send(embed=mk_embed("❌ Aucun comptage actif",
-            "Aucun comptage n'est en cours ici.\nUtilise `!supercounter` pour en démarrer un.",
-            0xE74C3C), delete_after=6)
+            "Utilise `!supercounter` pour en démarrer un.", 0xE74C3C), delete_after=6)
     counts = counting_channels.pop(cid)
     if not counts:
-        return await ctx.send(embed=mk_embed("📊 Résultats",
-            "Aucun message enregistré pendant le comptage.", 0xE67E22))
+        return await ctx.send(embed=mk_embed("📊 Résultats", "Aucun message enregistré.", 0xE67E22))
     sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:15]
     medals = ["🥇", "🥈", "🥉"] + [f"`{i+1}.`" for i in range(3, 15)]
-    lines = []
+    lines  = []
     for i, (uid, count) in enumerate(sorted_counts):
         member = ctx.guild.get_member(uid)
         name   = member.display_name if member else "Membre introuvable"
@@ -667,7 +686,7 @@ async def stopcount(ctx):
                 except (discord.Forbidden, discord.HTTPException):
                     pass
             try:
-                await winner.add_roles(super_role, reason="SuperCounter — gagnant du comptage")
+                await winner.add_roles(super_role, reason="SuperCounter — gagnant")
                 winner_extra = f"\n\n🏆 {winner.mention} remporte {super_role.mention} !"
             except (discord.Forbidden, discord.HTTPException):
                 winner_extra = f"\n\n🏆 Gagnant : {winner.mention}"
@@ -682,29 +701,29 @@ async def counter_help(ctx):
     e = discord.Embed(title="📊 SuperCounter — Aide",
         description="Système de comptage de messages par salon",
         color=BOT_COLOR, timestamp=datetime.now(timezone.utc))
-    e.add_field(name="🟢 !supercounter", value="Démarre le comptage dans ce salon *(admin)*",           inline=False)
-    e.add_field(name="🔴 !stopcount",    value="Arrête le comptage et affiche le top 15 *(admin)*",     inline=False)
-    e.add_field(name="❓ !counter",      value="Affiche cette page d'aide",                             inline=False)
+    e.add_field(name="🟢 !supercounter", value="Démarre le comptage dans ce salon *(admin)*",         inline=False)
+    e.add_field(name="🔴 !stopcount",    value="Arrête le comptage et affiche le top 15 *(admin)*",   inline=False)
+    e.add_field(name="❓ !counter",      value="Affiche cette page d'aide",                           inline=False)
     e.add_field(name="ℹ️ Fonctionnement",
-        value="Le comptage est lié au salon où `!supercounter` est lancé.\n"
-              "Les commandes `!...` ne sont pas comptées.\n"
-              "Le gagnant reçoit le rôle **@Super Counter** 🎖️\n"
-              "L'ancien gagnant perd le rôle automatiquement au prochain `!stopcount`", inline=False)
+        value="Messages comptés uniquement dans le salon du `!supercounter`.\n"
+              "Les commandes `!...` sont ignorées.\n"
+              "Le gagnant reçoit **@Super Counter** 🎖️ — l'ancien perd le rôle automatiquement.",
+        inline=False)
     e.set_footer(text=f"Block2BlockFr™ · {ctx.author.display_name}")
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command(name="time")
 async def time_cmd(ctx, *, pays: str = None):
     if not pays:
         now = datetime.now(ZoneInfo("Europe/Paris"))
-        return await ctx.send(embed=mk_embed("⏰ Heure — France",
+        return await send_private(ctx, mk_embed("⏰ Heure — France",
             f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
     tz = TZ.get(pays.lower())
     if not tz:
         return await ctx.send(embed=mk_embed("❌ Pays inconnu",
             "Essaie : `france`, `usa`, `japon`, `uk`, `maroc`...", 0xE74C3C), delete_after=6)
     now = datetime.now(ZoneInfo(tz))
-    await ctx.send(embed=mk_embed(f"⏰ Heure — {pays.title()}",
+    await send_private(ctx, mk_embed(f"⏰ Heure — {pays.title()}",
         f"`{now.strftime('%H:%M:%S')}` · {now.strftime('%d/%m/%Y')}"))
 
 @bot.command()
@@ -712,7 +731,7 @@ async def ping(ctx):
     ms    = round(bot.latency * 1000)
     color = 0x2ECC71 if ms < 100 else (0xE67E22 if ms < 200 else 0xE74C3C)
     icon  = "🟢" if ms < 100 else ("🟡" if ms < 200 else "🔴")
-    await ctx.send(embed=mk_embed(f"{icon} Ping", f"`{ms} ms`", color))
+    await send_private(ctx, mk_embed(f"{icon} Ping", f"`{ms} ms`", color))
 
 @bot.command()
 async def userinfo(ctx, member: discord.Member = None):
@@ -726,7 +745,7 @@ async def userinfo(ctx, member: discord.Member = None):
         f"**Compte créé :** {m.created_at.strftime('%d/%m/%Y')}\n"
         f"**Rôles :** {r_str}")
     e.set_thumbnail(url=m.display_avatar.url)
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command()
 async def serverinfo(ctx):
@@ -740,14 +759,14 @@ async def serverinfo(ctx):
         f"**Créé le :** {g.created_at.strftime('%d/%m/%Y')}")
     if g.icon:
         e.set_thumbnail(url=g.icon.url)
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command()
 async def avatar(ctx, member: discord.Member = None):
     m = member or ctx.author
     e = mk_embed(f"🖼️ Avatar — {m.display_name}")
     e.set_image(url=m.display_avatar.url)
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command()
 async def botinfo(ctx):
@@ -760,7 +779,7 @@ async def botinfo(ctx):
         f"**Langue :** `{'Français 🇫🇷' if LANG == 'fr' else 'English 🇬🇧'}`\n"
         f"**Support :** [Rejoindre]({SUPPORT_URL})")
     e.set_thumbnail(url=bot.user.display_avatar.url)
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command()
 @commands.bot_has_permissions(add_reactions=True)
@@ -780,7 +799,7 @@ async def roleinfo(ctx, role: discord.Role):
         f"**Mentionnable :** `{'Oui' if role.mentionable else 'Non'}`\n"
         f"**Permissions :** {perms}",
         color=role.color.value or BOT_COLOR)
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 BALL = [
     "🟢 Oui, absolument !", "🟢 Sans aucun doute.", "🟢 C'est certain !", "🟢 Compte là-dessus.",
@@ -815,7 +834,7 @@ async def ratio(ctx, member: discord.Member = None):
 
 @bot.command()
 async def sus(ctx, member: discord.Member = None):
-    t = member or ctx.author
+    t   = member or ctx.author
     pct = random.randint(0, 100)
     c   = 0xE74C3C if pct > 70 else (0xE67E22 if pct > 40 else 0x2ECC71)
     await ctx.send(embed=mk_embed("📡 Sus Meter", f"{t.mention} → **{pct}% sus** 🔍", c))
@@ -897,7 +916,7 @@ async def help_cmd(ctx):
             e.add_field(name="🛡️ Modération", inline=False, value="`!helpmodo` — Toutes les commandes staff")
         e.add_field(name="🌐 Langue",       inline=False, value="`!boten` — Switch to English 🇬🇧")
     e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command(name="helpfun")
 async def help_fun(ctx):
@@ -926,38 +945,38 @@ async def help_fun(ctx):
         e.add_field(name="💘 !love @membre",          value="Calcule la compatibilité amoureuse 💌",        inline=False)
         e.add_field(name="🌟 !compliment [@membre]", value="Envoie un joli compliment à un membre",         inline=False)
     e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command(name="helputil")
 async def help_util(ctx):
     if LANG == "en":
         e = discord.Embed(title="🌍 Utility Commands", color=BOT_COLOR, timestamp=datetime.now(timezone.utc))
-        e.add_field(name="🤖 !ask <question>",    value="Ask the AI — memory + auto web search",          inline=False)
-        e.add_field(name="🟢/🔴 !ia",            value="Toggle AI auto-reply in channel *(admin)*",       inline=False)
-        e.add_field(name="🏓 !ping",              value="Bot latency — 🟢 good · 🟡 ok · 🔴 bad",       inline=False)
-        e.add_field(name="⏰ !time [country]",    value="Current time — france, usa, japan, uk...",        inline=False)
-        e.add_field(name="👤 !userinfo [@member]",value="Member info — ID, roles, join & creation dates", inline=False)
-        e.add_field(name="🏰 !serverinfo",        value="Server stats — members, channels, roles, owner", inline=False)
-        e.add_field(name="🖼️ !avatar [@member]", value="View a member's avatar in full resolution",       inline=False)
-        e.add_field(name="🤖 !botinfo",           value="Bot stats — servers, members, ping, language",   inline=False)
-        e.add_field(name="📊 !poll <question>",   value="Create a quick 👍/👎 vote in this channel",     inline=False)
-        e.add_field(name="🏷️ !roleinfo @role",    value="Role details — color, members, permissions",     inline=False)
-        e.add_field(name="🌐 !boten / !botfr",    value="Switch bot language between English and French", inline=False)
+        e.add_field(name="🤖 !ask <question>",    value="Ask the AI — memory + auto web search",              inline=False)
+        e.add_field(name="🟢/🔴 !ia",            value="Toggle AI auto-reply in channel *(admin)*",           inline=False)
+        e.add_field(name="🏓 !ping",              value="Bot latency — 🟢 good · 🟡 ok · 🔴 bad",           inline=False)
+        e.add_field(name="⏰ !time [country]",    value="Current time — france, usa, japan, uk...",            inline=False)
+        e.add_field(name="👤 !userinfo [@member]",value="Member info — ID, roles, dates",                     inline=False)
+        e.add_field(name="🏰 !serverinfo",        value="Server stats — members, channels, owner",            inline=False)
+        e.add_field(name="🖼️ !avatar [@member]", value="Full resolution avatar",                             inline=False)
+        e.add_field(name="🤖 !botinfo",           value="Bot stats — servers, members, ping, language",       inline=False)
+        e.add_field(name="📊 !poll <question>",   value="Quick 👍/👎 vote in channel",                       inline=False)
+        e.add_field(name="🏷️ !roleinfo @role",    value="Role details — color, members, permissions",         inline=False)
+        e.add_field(name="🌐 !boten / !botfr",    value="Switch bot language EN/FR",                          inline=False)
     else:
         e = discord.Embed(title="🌍 Commandes Utilitaires", color=BOT_COLOR, timestamp=datetime.now(timezone.utc))
-        e.add_field(name="🤖 !ask <question>",   value="Pose une question à l'IA — mémoire + web auto",       inline=False)
-        e.add_field(name="🟢/🔴 !ia",           value="Active/désactive l'IA automatique dans le salon *(admin)*", inline=False)
-        e.add_field(name="🏓 !ping",             value="Latence du bot — 🟢 bon · 🟡 moyen · 🔴 mauvais",    inline=False)
-        e.add_field(name="⏰ !time [pays]",       value="Heure actuelle — france, usa, japon, uk, maroc...",   inline=False)
-        e.add_field(name="👤 !userinfo [@membre]",value="Infos membre — ID, rôles, dates de rejointe et création", inline=False)
-        e.add_field(name="🏰 !serverinfo",       value="Stats du serveur — membres, salons, rôles, proprio",  inline=False)
-        e.add_field(name="🖼️ !avatar [@membre]", value="Voir l'avatar d'un membre en pleine résolution",       inline=False)
-        e.add_field(name="🤖 !botinfo",          value="Stats du bot — serveurs, membres, ping, langue",       inline=False)
-        e.add_field(name="📊 !poll <question>",  value="Créer un vote rapide 👍/👎 dans le salon",            inline=False)
-        e.add_field(name="🏷️ !roleinfo @rôle",   value="Détails d'un rôle — couleur, membres, permissions",   inline=False)
-        e.add_field(name="🌐 !boten / !botfr",   value="Changer la langue du bot (français / anglais)",        inline=False)
+        e.add_field(name="🤖 !ask <question>",   value="Question à l'IA — mémoire + web auto",                    inline=False)
+        e.add_field(name="🟢/🔴 !ia",           value="Active/désactive l'IA automatique *(admin)*",              inline=False)
+        e.add_field(name="🏓 !ping",             value="Latence du bot — 🟢 bon · 🟡 moyen · 🔴 mauvais",       inline=False)
+        e.add_field(name="⏰ !time [pays]",       value="Heure actuelle — france, usa, japon, uk, maroc...",       inline=False)
+        e.add_field(name="👤 !userinfo [@membre]",value="Infos membre — ID, rôles, dates",                         inline=False)
+        e.add_field(name="🏰 !serverinfo",       value="Stats du serveur — membres, salons, proprio",              inline=False)
+        e.add_field(name="🖼️ !avatar [@membre]", value="Avatar en pleine résolution",                              inline=False)
+        e.add_field(name="🤖 !botinfo",          value="Stats du bot — serveurs, membres, ping, langue",           inline=False)
+        e.add_field(name="📊 !poll <question>",  value="Vote rapide 👍/👎 dans le salon",                         inline=False)
+        e.add_field(name="🏷️ !roleinfo @rôle",   value="Détails rôle — couleur, membres, permissions",             inline=False)
+        e.add_field(name="🌐 !boten / !botfr",   value="Changer la langue EN/FR",                                  inline=False)
     e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
-    await ctx.send(embed=e)
+    await send_private(ctx, e)
 
 @bot.command(name="helpmodo")
 async def help_modo(ctx):
@@ -967,41 +986,42 @@ async def help_modo(ctx):
     if LANG == "en":
         e = discord.Embed(title="🛡️ Moderation Commands", description="Staff-only commands",
                           color=0xE74C3C, timestamp=datetime.now(timezone.utc))
-        e.add_field(name="👢 !kick @member [reason]",          value="Kick a member from the server",                    inline=False)
-        e.add_field(name="🔨 !ban @member [reason]",           value="Permanently ban a member",                         inline=False)
-        e.add_field(name="✅ !unban <ID or name>",             value="Unban a member from the ban list",                 inline=False)
-        e.add_field(name="🔇 !exclure @member [min] [reason]",value="Timeout a member — default 10 min, max 28 days",  inline=False)
-        e.add_field(name="🔊 !unexclure @member",             value="Remove a member's timeout immediately",             inline=False)
-        e.add_field(name="⚠️ !warn @member [reason]",         value="Issue a warning — DM automatically sent",          inline=False)
-        e.add_field(name="📋 !warns @member",                 value="View the full warning history of a member",         inline=False)
-        e.add_field(name="🗑️ !clearwarn @member",             value="Erase all warnings from a member",                 inline=False)
-        e.add_field(name="🧹 !clear [n]",                     value="Bulk delete 1 to 100 messages",                    inline=False)
-        e.add_field(name="⏱️ !slowmode [seconds]",            value="Set channel slowmode — 0 to disable",              inline=False)
-        e.add_field(name="🔒 !lock / 🔓 !unlock",            value="Lock or unlock the channel",                       inline=False)
-        e.add_field(name="📢 !announce #channel <msg>",       value="Send a clean embed announcement *(admin)*",        inline=False)
-        e.add_field(name="✏️ !setnick @member <nick>",        value="Change a member's server nickname",                inline=False)
-        e.add_field(name="🌐 !serveurs",                      value="List all servers where the bot is present *(B2B admin only)*", inline=False)
-        e.add_field(name="🎫 !ticketsetup",                   value="Deploy the support ticket panel in this channel *(admin)*", inline=False)
+        e.add_field(name="👢 !kick @member [reason]",           value="Kick a member from the server",                              inline=False)
+        e.add_field(name="🔨 !ban @member [reason]",            value="Permanently ban a member",                                   inline=False)
+        e.add_field(name="✅ !unban <ID or name>",              value="Unban a member from the ban list",                           inline=False)
+        e.add_field(name="🔇 !exclure @member [min] [reason]", value="Timeout a member — default 10 min, max 28 days",             inline=False)
+        e.add_field(name="🔊 !unexclure @member",              value="Remove a member's timeout immediately",                       inline=False)
+        e.add_field(name="⚠️ !warn @member [reason]",          value="Issue a warning — DM automatically sent",                    inline=False)
+        e.add_field(name="📋 !warns @member",                  value="View the full warning history of a member",                   inline=False)
+        e.add_field(name="🗑️ !clearwarn @member",              value="Erase all warnings from a member",                           inline=False)
+        e.add_field(name="🧹 !clear [n]",                      value="Bulk delete 1 to 100 messages",                              inline=False)
+        e.add_field(name="⏱️ !slowmode [seconds]",             value="Set channel slowmode — 0 to disable",                        inline=False)
+        e.add_field(name="🔒 !lock / 🔓 !unlock",             value="Lock or unlock the channel",                                 inline=False)
+        e.add_field(name="📢 !announce #channel <msg>",        value="Send a clean embed announcement *(admin)*",                  inline=False)
+        e.add_field(name="✏️ !setnick @member <nick>",         value="Change a member's server nickname",                          inline=False)
+        e.add_field(name="🌐 !serveurs",                       value="List all bot servers *(B2B admin only)*",                    inline=False)
+        e.add_field(name="🎫 !ticketsetup",                    value="Deploy the ticket support panel *(admin)*",                  inline=False)
+        e.add_field(name="⚙️ !ticketalert @ping @staff",       value="Set alert channel, ping role & staff role *(admin)*",       inline=False)
     else:
         e = discord.Embed(title="🛡️ Commandes Modération", description="Réservées au staff",
                           color=0xE74C3C, timestamp=datetime.now(timezone.utc))
-        e.add_field(name="👢 !kick @membre [raison]",          value="Expulser un membre du serveur",                        inline=False)
-        e.add_field(name="🔨 !ban @membre [raison]",           value="Bannir définitivement un membre",                      inline=False)
-        e.add_field(name="✅ !unban <ID ou nom>",              value="Débannir un membre de la liste des bannis",             inline=False)
-        e.add_field(name="🔇 !exclure @membre [min] [raison]",value="Exclure temporairement — défaut 10 min, max 28 jours", inline=False)
-        e.add_field(name="🔊 !unexclure @membre",             value="Retirer l'exclusion d'un membre immédiatement",         inline=False)
-        e.add_field(name="⚠️ !warn @membre [raison]",         value="Avertir un membre — DM envoyé automatiquement",        inline=False)
-        e.add_field(name="📋 !warns @membre",                 value="Voir l'historique complet des avertissements d'un membre", inline=False)
-        e.add_field(name="🗑️ !clearwarn @membre",             value="Effacer tous les avertissements d'un membre",           inline=False)
-        e.add_field(name="🧹 !clear [n]",                     value="Supprimer de 1 à 100 messages en masse",               inline=False)
-        e.add_field(name="⏱️ !slowmode [secondes]",           value="Définir le slowmode du salon — 0 pour désactiver",     inline=False)
-        e.add_field(name="🔒 !lock / 🔓 !unlock",            value="Verrouiller ou déverrouiller le salon",                inline=False)
-        e.add_field(name="📢 !announce #salon <message>",     value="Envoyer une annonce propre en embed *(admin)*",        inline=False)
-        e.add_field(name="✏️ !setnick @membre <pseudo>",      value="Modifier le pseudo serveur d'un membre",               inline=False)
-        e.add_field(name="🌐 !serveurs",                      value="Lister tous les serveurs où le bot est présent *(admin B2B only)*", inline=False)
-        e.add_field(name="🎫 !ticketsetup",                   value="Déployer le panneau de support tickets dans ce salon *(admin)*", inline=False)
-        e.add_field(name="🎟️ !ticketalert",                   value="Activer les alertes de tickets dans ce salon *(admin)*", inline=False)
-        e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
-    await ctx.send(embed=e)
+        e.add_field(name="👢 !kick @membre [raison]",           value="Expulser un membre du serveur",                                    inline=False)
+        e.add_field(name="🔨 !ban @membre [raison]",            value="Bannir définitivement un membre",                                  inline=False)
+        e.add_field(name="✅ !unban <ID ou nom>",               value="Débannir un membre de la liste des bannis",                        inline=False)
+        e.add_field(name="🔇 !exclure @membre [min] [raison]", value="Exclure temporairement — défaut 10 min, max 28 jours",             inline=False)
+        e.add_field(name="🔊 !unexclure @membre",              value="Retirer l'exclusion d'un membre immédiatement",                     inline=False)
+        e.add_field(name="⚠️ !warn @membre [raison]",          value="Avertir un membre — DM envoyé automatiquement",                    inline=False)
+        e.add_field(name="📋 !warns @membre",                  value="Voir l'historique complet des avertissements d'un membre",          inline=False)
+        e.add_field(name="🗑️ !clearwarn @membre",              value="Effacer tous les avertissements d'un membre",                      inline=False)
+        e.add_field(name="🧹 !clear [n]",                      value="Supprimer de 1 à 100 messages en masse",                           inline=False)
+        e.add_field(name="⏱️ !slowmode [secondes]",            value="Définir le slowmode du salon — 0 pour désactiver",                 inline=False)
+        e.add_field(name="🔒 !lock / 🔓 !unlock",             value="Verrouiller ou déverrouiller le salon",                            inline=False)
+        e.add_field(name="📢 !announce #salon <message>",      value="Envoyer une annonce propre en embed *(admin)*",                    inline=False)
+        e.add_field(name="✏️ !setnick @membre <pseudo>",       value="Modifier le pseudo serveur d'un membre",                           inline=False)
+        e.add_field(name="🌐 !serveurs",                       value="Lister tous les serveurs du bot *(admin B2B only)*",               inline=False)
+        e.add_field(name="🎫 !ticketsetup",                    value="Déployer le panneau de tickets dans ce salon *(admin)*",           inline=False)
+        e.add_field(name="⚙️ !ticketalert @ping @staff",       value="Configurer les alertes — salon, rôle ping & rôle staff *(admin)*", inline=False)
+    e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
+    await send_private(ctx, e)
 
 bot.run(TOKEN)
