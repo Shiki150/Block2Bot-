@@ -1020,7 +1020,7 @@ async def help_modo(ctx):
         e.add_field(name="✏️ !setnick @membre <pseudo>",       value="Modifier le pseudo serveur d'un membre",                           inline=False)
         e.add_field(name="🌐 !serveurs",                       value="Lister tous les serveurs du bot *(admin B2B only)*",               inline=False)
         e.add_field(name="🎫 !ticketsetup",                    value="Déployer le panneau de tickets dans ce salon *(admin)*",           inline=False)
-        e.add_field(name="⚙️ !ticketalert @ping @staff",       value="Configurer les alertes — salon, rôle ping & rôle staff *(admin)*", inline=False)
+        e.add_field(name="⚙️ !ticketalert #Salon @Staff",       value="Configurer les alertes — salon, rôle ping & rôle staff *(admin)*", inline=False)
     e.set_footer(text=f"Block2BlockFr™  ·  {ctx.author.display_name}")
     await send_private(ctx, e)
 
